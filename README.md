@@ -26,12 +26,10 @@ check-trace
 
 临时域名: https://hello-world-example.lhr.life
 
-=== API 中转链路检测工具 ===
-
 请输入API信息:
 
 API URL: https://example-api.com/v1/chat/completions
-API Key: sk-xxxx1234yyyy5678zzzz9012
+API Key: sk-xxxx
 模型名称 (默认: gpt-4o):
 
 === API 中转链路检测工具 ===
@@ -41,9 +39,8 @@ API Key: sk-xxxx***
 模型名称: gpt-4o
 
 正在检测中...
-  → 12:34:56 UA: Go-http-client/1.1   [代理] X-Forwarded-For: 1.2.3.4
-  → 12:34:58 UA: Go-http-client/1.1   [代理] X-Forwarded-For: 5.6.7.8
-  → 12:35:00 UA: Go-http-client/1.1   [代理] X-Forwarded-For: 9.10.11.12
-  → 12:35:01 UA: Java/17.0.8          [代理] X-Forwarded-For: 13.14.15.16
-  → 检测完成
+   节点1  : Go代理             IP: 1.1.1.1
+   节点2  : Go代理             IP: 2.2.2.2
+   节点3  : OpenAI            IP: 3.3.3.3
+检测完成
 ```

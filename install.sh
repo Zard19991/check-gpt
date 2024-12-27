@@ -42,8 +42,8 @@ get_latest_version() {
 
     VERSION=$(curl -s "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
     if [ -z "$VERSION" ]; then
-        print_warning "无法获取最新版本，使用默认版本 v0.0.2"
-        VERSION="v0.0.2"
+        print_warning "无法获取最新版本，使用默认版本 ${DEFAULT_VERSION}"
+        VERSION=${DEFAULT_VERSION}
     fi
     print_message "获取最新版本: $VERSION"
 }
