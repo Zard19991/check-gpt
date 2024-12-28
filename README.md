@@ -39,8 +39,10 @@ API Key: sk-xxxx***
 模型名称: gpt-4o
 
 正在检测中...
-   节点1  : Go代理             IP: 1.1.1.1
-   节点2  : Go代理             IP: 2.2.2.2
-   节点3  : OpenAI            IP: 3.3.3.3
+   节点1  : Go代理             IP: 1.1.1.1 (Chicago - Cloudflare)
+   节点2  : Go代理             IP: 2.2.2.2 (San Francisco - Cloudflare)
+   节点3  : OpenAI            IP: 3.3.3.3 (Los Angeles - Microsoft)
+
 检测完成
+
 ```

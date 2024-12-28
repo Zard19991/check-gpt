@@ -3,12 +3,13 @@ package server
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
+	"image"
 	"image/png"
-	"io"
 	"math/rand"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -28,6 +29,7 @@ type Server struct {
 	records    *trace.RecordManager
 	ready      chan struct{}
 	requestID  string
+	colors     []utils.ColorInfo
 }
 
 // New creates a new server instance
@@ -50,13 +52,20 @@ func New(cfg *config.Config) *Server {
 	corsConfig.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization"}
 	router.Use(cors.New(corsConfig))
 
-	return &Server{
+	requestID := fmt.Sprintf("%x", rand.Int63())
+
+	// Get random unique colors at initialization
+	colors := utils.GetRandomUniqueColors(3)
+
+	s := &Server{
 		config:    cfg,
 		router:    router,
 		records:   trace.New(),
 		ready:     make(chan struct{}),
-		requestID: fmt.Sprintf("%x", rand.Int63()),
+		requestID: requestID,
+		colors:    colors,
 	}
+	return s
 }
 
 // Start starts the server
@@ -108,8 +117,6 @@ func (s *Server) Shutdown() error {
 	if s.httpServer != nil {
 		s.httpServer.Shutdown(context.Background())
 	}
-	s.records.Close()
-	<-s.records.Done()
 	return nil
 }
 
@@ -136,36 +143,19 @@ func (s *Server) setupRoutes() {
 	s.router.GET("/", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
-	s.router.GET(s.config.ImagePath, s.handleFakeImage)
+
+	s.router.Any("/static/image", s.handleImageRequest)
 }
 
-// handleFakeImage handles image requests
-func (s *Server) handleFakeImage(c *gin.Context) {
-	requestID := c.Query("id")
-	if requestID != s.requestID {
-		c.Status(http.StatusNotFound)
+// handleImageRequest handles both HEAD and GET requests for images
+func (s *Server) handleImageRequest(c *gin.Context) {
+	// Verify request ID
+	if c.Query("id") != s.requestID {
+		c.AbortWithStatus(http.StatusNotFound)
 		return
 	}
 
-	// Generate image
-	img := utils.GenerateRandomImage(100, 100)
-	buffer := new(bytes.Buffer)
-	if err := png.Encode(buffer, img); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成图片失败"})
-		return
-	}
-
-	// Record request info
-	s.recordRequest(c)
-
-	// Send response
-	c.Header("Content-Type", "image/png")
-	c.Header("Content-Length", fmt.Sprintf("%d", buffer.Len()))
-	c.Data(http.StatusOK, "image/png", buffer.Bytes())
-}
-
-// recordRequest records request information
-func (s *Server) recordRequest(c *gin.Context) {
+	// Record request for tracking
 	headers := trace.RequestHeaders{
 		UserAgent:    c.GetHeader("User-Agent"),
 		ForwardedFor: c.GetHeader("X-Forwarded-For"),
@@ -174,73 +164,77 @@ func (s *Server) recordRequest(c *gin.Context) {
 		Time:         time.Now(),
 		IP:           c.ClientIP(),
 	}
-
 	s.records.ProcessRequest(headers)
+
+	// Set headers for both HEAD and GET requests
+	c.Header("Content-Type", "image/png")
+
+	// For HEAD requests, just return headers
+	if c.Request.Method == "HEAD" {
+		c.Status(http.StatusOK)
+		return
+	}
+
+	// Create image with pre-determined colors
+	img := image.NewRGBA(image.Rect(0, 0, 100, 100))
+	stripeWidth := 10 // Width of each stripe
+	for x := 0; x < 100; x++ {
+		for y := 0; y < 100; y++ {
+			colorIndex := ((x + y) / stripeWidth) % len(s.colors)
+			img.Set(x, y, s.colors[colorIndex].Color)
+		}
+	}
+
+	buffer := new(bytes.Buffer)
+	if err := png.Encode(buffer, img); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成图片失败"})
+		return
+	}
+
+	c.Header("Content-Length", fmt.Sprintf("%d", buffer.Len()))
+	c.Data(http.StatusOK, "image/png", buffer.Bytes())
 }
 
 // SendPostRequest sends a POST request to test the API
-func (s *Server) SendPostRequest(url, key, model string) {
-	reqBody := map[string]interface{}{
-		"model": model,
-		"messages": []map[string]interface{}{
-			{
-				"role": "user",
-				"content": []map[string]interface{}{
-					{
-						"type": "image_url",
-						"image_url": map[string]string{
-							"url": s.TunnelURL() + fmt.Sprintf("%s?id=%s", s.config.ImagePath, s.requestID),
-						},
-					},
-					{
-						"type": "text",
-						"text": "What is this?",
-					},
-				},
-			},
-		},
-		"max_tokens": 3,
-		"stream":     false,
-	}
+func (s *Server) SendPostRequest(ctx context.Context, url, key, model string) {
+	defer func() {
+		s.records.AddCheckEndMessage()
+		s.records.AddCloseMessage()
+	}()
+	ctx, cancel := context.WithTimeout(ctx, s.config.Timeout)
+	defer cancel()
 
-	jsonData, err := json.Marshal(reqBody)
+	imageURL := s.TunnelURL() + fmt.Sprintf("%s?id=%s", s.config.ImagePath, s.requestID)
+	resp, err := utils.SendChatRequest(ctx, url, key, model, imageURL, s.config.MaxTokens)
 	if err != nil {
-		s.records.AddErrorMessage(fmt.Errorf("序列化请求体失败: %v", err))
-		s.records.AddFinishMessage()
+		if errors.Is(err, context.DeadlineExceeded) {
+			s.records.AddErrorMessage(fmt.Errorf("API请求超时,未能获取到响应, 超过%s", s.config.Timeout))
+		} else {
+			s.records.AddErrorMessage(fmt.Errorf("API请求失败: %v", err))
+		}
 		return
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		s.records.AddErrorMessage(fmt.Errorf("创建请求失败: %v", err))
-		s.records.AddFinishMessage()
-		return
+	colorInfo := ""
+	if len(s.colors) > 0 {
+		colorNames := make([]string, len(s.colors))
+		for i, c := range s.colors {
+			colorNames[i] = c.Name
+		}
+		colorInfo = fmt.Sprintf(", colors: %s", strings.Join(colorNames, ", "))
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+key)
+	// Show the request message with color information
+	requestMsg := fmt.Sprintf("请求 API: What is this? (发送一个彩色100x100像素的对角条纹PNG图片%s)", colorInfo)
+	requestMsg = fmt.Sprintf("%s, max_tokens: %d", requestMsg, s.config.MaxTokens)
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		s.records.AddErrorMessage(fmt.Errorf("发送请求失败: %v", err))
-		s.records.AddFinishMessage()
-		return
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		s.records.AddErrorMessage(fmt.Errorf("读取响应失败: %v", err))
-		s.records.AddFinishMessage()
-		return
+	responseMsg := ""
+	if len(resp.Choices) > 0 {
+		responseMsg = fmt.Sprintf("API响应: %s", resp.Choices[0].Message.Content)
+	} else {
+		responseMsg = "API响应: 无法获取响应"
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		s.records.AddErrorMessage(fmt.Errorf("请求失败: 状态码 %d, 响应: %s", resp.StatusCode, string(body)))
-		s.records.AddFinishMessage()
-		return
-	}
-
-	s.records.AddFinishMessage()
+	msg := fmt.Sprintf("%s\n%s", requestMsg, responseMsg)
+	s.records.AddApiResponse(msg)
 }

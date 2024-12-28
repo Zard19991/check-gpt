@@ -15,27 +15,73 @@ import (
 // Version will be set by GoReleaser
 var Version = "dev"
 
-// Temporary testing configuration
+// Test configuration
 const (
-	TestMode = false // Set to true to use test credentials
-	TestURL  = ""
-	TestKey  = ""
+	TestMode  = false // Set to true to use test credentials
+	TestURL   = ""
+	TestKey   = ""
+	TestModel = ""
 )
 
-func main() {
-	cfg := config.New()
+type apiConfig struct {
+	URL   string
+	Key   string
+	Model string
+}
 
-	// Show version if requested
-	if cfg.Version {
-		fmt.Printf("check-trace %s\n", Version)
-		os.Exit(0)
+func getTestConfig() *apiConfig {
+	return &apiConfig{
+		URL:   TestURL,
+		Key:   TestKey,
+		Model: TestModel,
+	}
+}
+
+func getAPIConfig(cfg *config.Config, reader *bufio.Reader) (*apiConfig, error) {
+	fmt.Println("\n=== API 中转链路检测工具 ===")
+	fmt.Println("\n请输入API信息:")
+
+	// Get API URL
+	fmt.Print("\nAPI完整的URL: ")
+	url, err := reader.ReadString('\n')
+	if err != nil {
+		return nil, fmt.Errorf("读取URL失败: %v", err)
+	}
+	url = strings.TrimSpace(url)
+	if url == "" {
+		return nil, fmt.Errorf("URL不能为空")
 	}
 
-	// Create and start server
-	srv := server.New(cfg)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Get API Key
+	fmt.Print("API Key: ")
+	key, err := reader.ReadString('\n')
+	if err != nil {
+		return nil, fmt.Errorf("读取API Key失败: %v", err)
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil, fmt.Errorf("API Key不能为空")
+	}
 
+	// Get model name
+	fmt.Printf("模型名称 (默认: %s): ", cfg.DefaultModel)
+	model, err := reader.ReadString('\n')
+	if err != nil {
+		return nil, fmt.Errorf("读取模型名称失败: %v", err)
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		model = cfg.DefaultModel
+	}
+
+	return &apiConfig{
+		URL:   url,
+		Key:   key,
+		Model: model,
+	}, nil
+}
+
+func startServer(ctx context.Context, srv *server.Server) error {
 	utils.ClearConsole()
 	fmt.Println("正在启动服务器和创建临时域名...")
 	fmt.Println("请稍候...")
@@ -49,87 +95,84 @@ func main() {
 	// Wait for server to be ready or error
 	select {
 	case err := <-errChan:
-		if err != nil {
-			fmt.Printf("错误: %v\n", err)
-			os.Exit(1)
-		}
+		return err
 	case <-srv.Ready():
-		fmt.Printf("\n临时域名: %s\n", srv.TunnelURL())
-
-		var url, key, model string
-
-		if TestMode {
-			// Use test credentials
-			url = TestURL
-			key = TestKey
-			model = "gpt-4o"
-			fmt.Println("\n=== 测试模式 ===")
-			fmt.Printf("使用预设配置:\n")
-			fmt.Printf("API URL: %s\n", url)
-			fmt.Printf("API Key: %s***\n", key[:utils.Min(len(key), 8)])
-			fmt.Printf("模型名称: %s\n", model)
-		} else {
-			// Start API detection
-			fmt.Println("\n=== API 中转链路检测工具 ===")
-			fmt.Println("\n请输入API信息:")
-
-			reader := bufio.NewReader(os.Stdin)
-
-			// Get API URL
-			fmt.Print("\nAPI完整的URL: ")
-			url, _ = reader.ReadString('\n')
-			url = strings.TrimSpace(url)
-
-			if url == "" {
-				fmt.Println("URL不能为空")
-				os.Exit(1)
-			}
-
-			// Get API Key
-			fmt.Print("API Key: ")
-			key, _ = reader.ReadString('\n')
-			key = strings.TrimSpace(key)
-
-			if key == "" {
-				fmt.Println("API Key不能为空")
-				os.Exit(1)
-			}
-
-			// Get model name
-			fmt.Printf("模型名称 (默认: %s): ", cfg.DefaultModel)
-			model, _ = reader.ReadString('\n')
-			model = strings.TrimSpace(model)
-			if model == "" {
-				model = cfg.DefaultModel
-			}
-		}
-
-		// Clear screen and show detection info
-		utils.ClearConsole()
-		fmt.Printf("=== API 中转链路检测工具 ===\n")
-		fmt.Printf("临时域名: %s\n", srv.TunnelURL())
-		fmt.Printf("API URL: %s\n", url)
-		fmt.Printf("API Key: %s***\n", key[:utils.Min(len(key), 8)])
-		fmt.Printf("模型名称: %s\n", model)
-		fmt.Println("\n正在检测中...")
-
-		// Start detection
-		go srv.SendPostRequest(url, key, model)
-
-		// Wait for detection to complete or timeout
-		select {
-		case <-srv.Records().Done():
-			// Detection complete, graceful exit
-			srv.Shutdown()
-			os.Exit(0)
-		case <-ctx.Done():
-			fmt.Println("错误: 检测超时")
-			srv.Shutdown()
-			os.Exit(1)
-		}
-
+		return nil
 	case <-ctx.Done():
-		fmt.Println("错误: 服务器启动超时")
+		return fmt.Errorf("服务器启动超时")
+	}
+}
+
+func runDetection(ctx context.Context, srv *server.Server, apiCfg *apiConfig) error {
+	// Clear screen and show detection info
+	utils.ClearConsole()
+	fmt.Printf("=== API 中转链路检测工具 ===\n")
+	fmt.Printf("临时域名: %s\n", srv.TunnelURL())
+	fmt.Printf("API URL: %s\n", apiCfg.URL)
+	fmt.Printf("API Key: %s***\n", apiCfg.Key[:utils.Min(len(apiCfg.Key), 8)])
+	fmt.Printf("模型名称: %s\n", apiCfg.Model)
+	fmt.Println("\n正在检测中...")
+	fmt.Println("\n节点信息：")
+
+	// Start detection
+	go srv.SendPostRequest(ctx, apiCfg.URL, apiCfg.Key, apiCfg.Model)
+
+	// Wait for detection to finish
+	<-srv.Records().Done()
+
+	return nil
+}
+
+func main() {
+	cfg := config.New()
+
+	// Show version if requested
+	if cfg.Version {
+		fmt.Printf("check-trace %s\n", Version)
+		os.Exit(0)
+	}
+
+	// Create server
+	srv := server.New(cfg)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start server
+	if err := startServer(ctx, srv); err != nil {
+		fmt.Printf("错误: %v\n", err)
 		os.Exit(1)
 	}
+
+	fmt.Printf("\n临时域名: %s\n", srv.TunnelURL())
+
+	var apiCfg *apiConfig
+	var err error
+
+	if TestMode {
+		// Use test configuration
+		apiCfg = getTestConfig()
+		fmt.Println("\n=== 测试模式 ===")
+		fmt.Printf("使用预设配置:\n")
+		fmt.Printf("API URL: %s\n", apiCfg.URL)
+		fmt.Printf("API Key: %s***\n", apiCfg.Key[:utils.Min(len(apiCfg.Key), 8)])
+		fmt.Printf("模型名称: %s\n", apiCfg.Model)
+	} else {
+		// Get API configuration from user input
+		reader := bufio.NewReader(os.Stdin)
+		apiCfg, err = getAPIConfig(cfg, reader)
+		if err != nil {
+			fmt.Printf("错误: %v\n", err)
+			srv.Shutdown()
+			os.Exit(1)
+		}
+	}
+
+	// Run detection
+	if err := runDetection(ctx, srv, apiCfg); err != nil {
+		fmt.Printf("错误: %v\n", err)
+		srv.Shutdown()
+		os.Exit(1)
+	}
+
+	srv.Shutdown()
 }

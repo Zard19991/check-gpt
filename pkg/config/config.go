@@ -15,6 +15,7 @@ type Config struct {
 	Timeout      time.Duration
 	ImagePath    string
 	DefaultModel string
+	MaxTokens    int
 }
 
 // New creates a new configuration with default values
@@ -26,11 +27,9 @@ func New() *Config {
 
 	// Set default values
 	cfg.Port = 8921
-	cfg.MaxRetries = 3
-	cfg.RetryDelay = 2 * time.Second
-	cfg.Timeout = 30 * time.Second
+	cfg.Timeout = 60 * time.Second
 	cfg.ImagePath = "/static/image"
 	cfg.DefaultModel = "gpt-4o"
-
+	cfg.MaxTokens = 20
 	return cfg
 }
