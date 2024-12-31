@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-coders/check-trace/pkg/logger"
+
 	"github.com/mattn/go-runewidth"
 )
 
@@ -19,6 +21,7 @@ const (
 	MessageTypeCheckEnd
 	MessageTypeClose
 	MessageTypeAPI
+	MessageTypeNodeCount
 )
 
 const (
@@ -63,31 +66,34 @@ type RequestSignature struct {
 	ForwardedFor string
 	ConnectingIP string
 	IP           string
+	Time         time.Time
 }
 
 // RecordManager handles trace records and messages
 type RecordManager struct {
-	messages  []Message
-	msgChan   chan Message
-	done      chan struct{}
-	seen      map[RequestSignature]bool
-	nodeCount int // Track the number of nodes
-
+	messages     []Message
+	msgChan      chan Message
+	done         chan struct{}
+	seen         map[RequestSignature]bool
+	nodeCount    int         // Track the number of nodes
+	nodeRequests map[int]int // Track requests per node
 }
 
 // New creates a new record manager
 func New() *RecordManager {
 	return &RecordManager{
-		messages:  make([]Message, 0),
-		msgChan:   make(chan Message, 100),
-		done:      make(chan struct{}),
-		seen:      make(map[RequestSignature]bool),
-		nodeCount: 0,
+		messages:     make([]Message, 0),
+		msgChan:      make(chan Message, 100),
+		done:         make(chan struct{}),
+		seen:         make(map[RequestSignature]bool),
+		nodeCount:    0,
+		nodeRequests: make(map[int]int),
 	}
 }
 
 // Start begins processing trace events
 func (r *RecordManager) Start(ctx context.Context) {
+	logger.Debug("Starting trace recording")
 	go r.processEvents(ctx)
 }
 
@@ -96,7 +102,6 @@ func (r *RecordManager) processEvents(ctx context.Context) {
 	defer close(r.done)
 
 	for {
-
 		select {
 		case <-ctx.Done():
 			return
@@ -108,7 +113,11 @@ func (r *RecordManager) processEvents(ctx context.Context) {
 
 			switch msg.Type {
 			case MessageTypeTrace:
-				msg.Content = r.updateTraceWithIPInfo(&msg)
+				traceInfo, haveSeen := r.getTraceInfo(msg.Headers)
+				if haveSeen {
+					break
+				}
+				msg.Content = r.updateTraceWithIPInfo(traceInfo)
 				fmt.Printf("%s%s%s\n", colorGreen, msg.Content, colorReset)
 			case MessageTypeError:
 				fmt.Printf("%s错误: %s%s\n", colorRed, msg.Content, colorReset)
@@ -119,9 +128,44 @@ func (r *RecordManager) processEvents(ctx context.Context) {
 			case MessageTypeAPI:
 				fmt.Printf("\n请求详情：\n")
 				fmt.Printf("%s%s%s\n", colorYellow, msg.Content, colorReset)
+			case MessageTypeNodeCount:
+				fmt.Printf("%s%s%s", colorBlue, msg.Content, colorReset)
 			}
 		}
 	}
+}
+
+func (r *RecordManager) getTraceInfo(headers RequestHeaders) (*TraceInfo, bool) {
+	// Create request signature
+	sig := RequestSignature{
+		UserAgent:    headers.UserAgent,
+		ForwardedFor: headers.ForwardedFor,
+		ConnectingIP: headers.ConnectingIP,
+		IP:           headers.IP,
+	}
+	// Increment node count and mark as seen
+	logger.Debug("sig: %+v", sig)
+	var haveSeen bool
+	if !r.seen[sig] {
+		r.nodeCount++
+		r.seen[sig] = true
+	} else {
+		haveSeen = true
+	}
+	// Track request count for this node
+	r.nodeRequests[r.nodeCount]++
+
+	// trace info
+	traceInfo := &TraceInfo{
+		TimeStr:      headers.Time.Format("15:04:05"),
+		UserAgent:    headers.UserAgent,
+		ForwardedFor: headers.ForwardedFor,
+		ConnectingIP: headers.ConnectingIP,
+		IP:           headers.IP,
+		NodeNum:      r.nodeCount,
+	}
+
+	return traceInfo, haveSeen
 }
 
 // AddMessage adds a new message to the record
@@ -145,6 +189,10 @@ func (r *RecordManager) AddErrorMessage(err error) {
 }
 
 func (r *RecordManager) AddApiResponse(content string) {
+	// First send node count message
+	r.PrintNodeCounts()
+
+	// Then send API response message
 	r.msgChan <- Message{
 		Type:    MessageTypeAPI,
 		Time:    time.Now(),
@@ -178,39 +226,30 @@ func (r *RecordManager) Shutdown() {
 
 // ProcessRequest processes the request headers and adds trace messages
 func (r *RecordManager) ProcessRequest(headers RequestHeaders) {
-	// Create request signature
-	sig := RequestSignature{
-		UserAgent:    headers.UserAgent,
-		ForwardedFor: headers.ForwardedFor,
-		ConnectingIP: headers.ConnectingIP,
-		IP:           headers.IP,
-	}
-
-	// If we've seen this signature before, skip
-	if r.seen[sig] {
-		return
-	}
-
-	// Increment node count and mark as seen
-	r.nodeCount++
-	r.seen[sig] = true
-
-	// Create trace info
-	traceInfo := &TraceInfo{
-		TimeStr:      headers.Time.Format("15:04:05"),
-		UserAgent:    headers.UserAgent,
-		ForwardedFor: headers.ForwardedFor,
-		ConnectingIP: headers.ConnectingIP,
-		IP:           headers.IP,
-		NodeNum:      r.nodeCount,
-	}
 
 	// Add formatted messages with headers
 	r.msgChan <- Message{
 		Type:    MessageTypeTrace,
 		Time:    headers.Time,
-		Content: traceInfo.FormatMessages(),
 		Headers: headers,
+	}
+}
+
+// PrintNodeCounts sends a message with the current node request counts
+func (r *RecordManager) PrintNodeCounts() {
+	fmt.Printf("\n节点请求次数：\n")
+
+	var content strings.Builder
+	for i := 1; i <= r.nodeCount; i++ {
+		count := r.nodeRequests[i]
+		content.WriteString(fmt.Sprintf("%s节点%-2d : %d次请求\n",
+			strings.Repeat(" ", indentSpaces), i, count))
+	}
+
+	r.msgChan <- Message{
+		Type:    MessageTypeNodeCount,
+		Time:    time.Now(),
+		Content: content.String(),
 	}
 }
 
@@ -272,7 +311,6 @@ func (t *TraceInfo) FormatMessages() string {
 
 // getClientIP returns the most relevant client IP
 func (t *TraceInfo) getClientIP() string {
-
 	if t.IP != "" {
 		return t.IP
 	}
@@ -281,36 +319,52 @@ func (t *TraceInfo) getClientIP() string {
 
 // buildPlatformPath builds the platform path based on user agent and IP
 func (t *TraceInfo) buildPlatformPath() string {
-	// Handle User-Agent cases
+	logger.Debug("UserAgent: %s", t.UserAgent)
+
 	switch {
 	case t.UserAgent == "":
 		return "未知代理"
 	case strings.Contains(t.UserAgent, "IPS") || strings.Contains(t.UserAgent, "Azure"):
-		return "Azure"
+		return "Azure服务"
 	case strings.Contains(t.UserAgent, "OpenAI"):
-		return "OpenAI"
+		return "OpenAI服务"
 	default:
-		// Get the full User-Agent identifier before version number
 		ua := strings.Split(t.UserAgent, "/")[0]
 		ua = strings.TrimSpace(ua)
+		uaLower := strings.ToLower(ua)
 
+		// 服务端HTTP客户端库
 		switch {
 		case strings.Contains(ua, "Go-http-client"):
-			return "Go代理"
-		case strings.Contains(strings.ToLower(ua), "python"):
-			return "Python代理"
-		case strings.Contains(strings.ToLower(ua), "java"):
-			return "Java代理"
-		case strings.Contains(strings.ToLower(ua), "node"):
-			return "Node代理"
-		case strings.Contains(ua, "Mozilla") || strings.Contains(ua, "Chrome"):
-			return "浏览器代理"
+			return "Go服务"
+		case strings.Contains(uaLower, "got"):
+			return "Node.js服务"
+		case strings.Contains(uaLower, "axios"):
+			return "Node.js服务"
+		case strings.Contains(uaLower, "requests"):
+			return "Python服务"
+		case strings.Contains(uaLower, "aiohttp"):
+			return "Python服务"
+		case strings.Contains(uaLower, "okhttp"):
+			return "Java服务"
+		case strings.Contains(uaLower, "python"):
+			return "Python服务"
+		case strings.Contains(uaLower, "java"):
+			return "Java服务"
+		case strings.Contains(uaLower, "node"):
+			return "Node.js服务"
 		case ua != "":
-			return fmt.Sprintf("%s代理", ua)
+			// 如果是未知的服务端代理，记录日志并显示简化信息
+			fullUA := t.UserAgent
+			if len(fullUA) > 30 {
+				fullUA = fullUA[:30] + "..."
+			}
+			logger.Debug("未知服务类型: %s", fullUA)
+			return fmt.Sprintf("%s服务", ua)
 		}
 	}
 
-	return "未知代理"
+	return "未知服务"
 }
 
 // IPInfo represents the response from IP-API
@@ -340,24 +394,12 @@ func getIPInfo(ip string) (*IPInfo, error) {
 }
 
 // updateTraceWithIPInfo updates the message with IP info and returns updated content
-func (r *RecordManager) updateTraceWithIPInfo(msg *Message) string {
-
-	ipInfo, err := getIPInfo(msg.Headers.IP)
+func (r *RecordManager) updateTraceWithIPInfo(traceInfo *TraceInfo) string {
+	ipInfo, err := getIPInfo(traceInfo.IP)
 	if err == nil && ipInfo != nil {
-		msg.Headers.Location = ipInfo.City + ", " + ipInfo.RegionName + ", " + ipInfo.Country
-		msg.Headers.ISP = ipInfo.ISP
+		traceInfo.Location = ipInfo.City + ", " + ipInfo.RegionName + ", " + ipInfo.Country
+		traceInfo.ISP = ipInfo.ISP
 	}
 
-	// Create trace info with whatever information we have
-	traceInfo := &TraceInfo{
-		TimeStr:      msg.Headers.Time.Format("15:04:05"),
-		UserAgent:    msg.Headers.UserAgent,
-		ForwardedFor: msg.Headers.ForwardedFor,
-		ConnectingIP: msg.Headers.ConnectingIP,
-		IP:           msg.Headers.IP,
-		NodeNum:      r.nodeCount,
-		Location:     msg.Headers.Location,
-		ISP:          msg.Headers.ISP,
-	}
 	return traceInfo.FormatMessages()
 }

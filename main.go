@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/go-coders/check-trace/pkg/config"
+	"github.com/go-coders/check-trace/pkg/logger"
 	"github.com/go-coders/check-trace/pkg/server"
 	"github.com/go-coders/check-trace/pkg/utils"
 )
@@ -112,19 +113,23 @@ func runDetection(ctx context.Context, srv *server.Server, apiCfg *apiConfig) er
 	fmt.Printf("API Key: %s***\n", apiCfg.Key[:utils.Min(len(apiCfg.Key), 8)])
 	fmt.Printf("模型名称: %s\n", apiCfg.Model)
 	fmt.Println("\n正在检测中...")
-	fmt.Println("\n节点信息：")
+	fmt.Println("\n节点链路：")
 
 	// Start detection
 	go srv.SendPostRequest(ctx, apiCfg.URL, apiCfg.Key, apiCfg.Model)
 
-	// Wait for detection to finish
-	<-srv.Records().Done()
+	select {
+	case <-srv.Records().Done():
+	case <-ctx.Done():
+	}
 
 	return nil
 }
 
 func main() {
 	cfg := config.New()
+
+	logger.Init(cfg.Debug)
 
 	// Show version if requested
 	if cfg.Version {

@@ -15,6 +15,7 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/go-coders/check-trace/pkg/config"
+	"github.com/go-coders/check-trace/pkg/logger"
 	"github.com/go-coders/check-trace/pkg/trace"
 	"github.com/go-coders/check-trace/pkg/tunnel"
 	"github.com/go-coders/check-trace/pkg/utils"
@@ -149,6 +150,7 @@ func (s *Server) setupRoutes() {
 
 // handleImageRequest handles both HEAD and GET requests for images
 func (s *Server) handleImageRequest(c *gin.Context) {
+	logger.Debug("Handling new request")
 	// Verify request ID
 	if c.Query("id") != s.requestID {
 		c.AbortWithStatus(http.StatusNotFound)
@@ -171,6 +173,7 @@ func (s *Server) handleImageRequest(c *gin.Context) {
 
 	// For HEAD requests, just return headers
 	if c.Request.Method == "HEAD" {
+		logger.Debug("HEAD request received")
 		c.Status(http.StatusOK)
 		return
 	}
