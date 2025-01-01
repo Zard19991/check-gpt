@@ -6,6 +6,7 @@ import (
 	"image/png"
 	"testing"
 
+	"github.com/go-coders/check-trace/pkg/config"
 	"github.com/go-coders/check-trace/pkg/util"
 )
 
@@ -17,41 +18,37 @@ func TestGenerateStripes(t *testing.T) {
 		{Color: color.RGBA{R: 0, G: 0, B: 255, A: 255}, Name: "Blue"},
 	}
 
-	generator := New(colors)
+	generator := New(colors, config.PNG)
 
 	tests := []struct {
-		name        string
-		width       int
-		height      int
-		stripeWidth int
-		wantErr     bool
+		name    string
+		width   int
+		height  int
+		wantErr bool
 	}{
 		{
-			name:        "Standard size",
-			width:       100,
-			height:      100,
-			stripeWidth: 10,
-			wantErr:     false,
+			name:    "Standard size",
+			width:   100,
+			height:  100,
+			wantErr: false,
 		},
 		{
-			name:        "Small size",
-			width:       10,
-			height:      10,
-			stripeWidth: 2,
-			wantErr:     false,
+			name:    "Small size",
+			width:   10,
+			height:  10,
+			wantErr: false,
 		},
 		{
-			name:        "Large size",
-			width:       1000,
-			height:      1000,
-			stripeWidth: 50,
-			wantErr:     false,
+			name:    "Large size",
+			width:   1000,
+			height:  1000,
+			wantErr: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			imgData, err := generator.GenerateStripes(tt.width, tt.height, tt.stripeWidth)
+			imgData, err := generator.GenerateStripes(tt.width, tt.height)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GenerateStripes() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -73,11 +70,17 @@ func TestGenerateStripes(t *testing.T) {
 					bounds.Dx(), bounds.Dy(), tt.width, tt.height)
 			}
 
+			// Calculate expected stripe width
+			stripeWidth := tt.width / (len(colors) * 2)
+			if stripeWidth < 1 {
+				stripeWidth = 1
+			}
+
 			// Verify stripes
 			// Check a few points to ensure stripes are generated correctly
-			for x := 0; x < tt.width; x += tt.stripeWidth {
-				for y := 0; y < tt.height; y += tt.stripeWidth {
-					expectedColorIndex := ((x + y) / tt.stripeWidth) % len(colors)
+			for x := 0; x < tt.width; x += stripeWidth {
+				for y := 0; y < tt.height; y += stripeWidth {
+					expectedColorIndex := ((x + y) / stripeWidth) % len(colors)
 					expectedColor := colors[expectedColorIndex].Color
 					gotColor := img.At(x, y)
 
@@ -96,7 +99,7 @@ func TestGetColors(t *testing.T) {
 		{Color: color.RGBA{R: 0, G: 255, B: 0, A: 255}, Name: "Green"},
 	}
 
-	generator := New(colors)
+	generator := New(colors, config.PNG)
 	gotColors := generator.GetColors()
 
 	if len(gotColors) != len(colors) {

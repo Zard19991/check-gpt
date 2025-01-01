@@ -1,6 +1,7 @@
 package util
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -11,6 +12,9 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"strings"
+
+	"github.com/go-coders/check-trace/pkg/logger"
 )
 
 // ClearConsole clears the console screen
@@ -101,14 +105,6 @@ func Min(a, b int) int {
 	return b
 }
 
-// ChatRequest represents the chat completion request structure
-type ChatRequest struct {
-	Model     string        `json:"model"`
-	Messages  []ChatMessage `json:"messages"`
-	MaxTokens int           `json:"max_tokens"`
-	Stream    bool          `json:"stream"`
-}
-
 // ChatMessage represents a message in the chat
 type ChatMessage struct {
 	Role    string           `json:"role"`
@@ -124,7 +120,8 @@ type MessageContent struct {
 
 // ImageURL represents an image URL
 type ImageURL struct {
-	URL string `json:"url"`
+	URL    string `json:"url"`
+	Detail string `json:"detail"`
 }
 
 // ChatResponse represents the chat completion response structure
@@ -134,68 +131,6 @@ type ChatResponse struct {
 			Content string `json:"content"`
 		} `json:"message"`
 	} `json:"choices"`
-}
-
-// SendChatRequest sends a chat completion request to the specified URL
-func SendChatRequest(ctx context.Context, url, apiKey, model string, imageURL string, maxTokens int) (*ChatResponse, error) {
-	reqBody := ChatRequest{
-		Model: model,
-		Messages: []ChatMessage{
-			{
-				Role: "user",
-				Content: []MessageContent{
-					{
-						Type: "image_url",
-						ImageURL: &ImageURL{
-							URL: imageURL,
-						},
-					},
-					{
-						Type: "text",
-						Text: "What is this?",
-					},
-				},
-			},
-		},
-		MaxTokens: maxTokens,
-		Stream:    false,
-	}
-
-	jsonData, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("序列化请求失败: %v", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("发送请求失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("读取响应失败: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("请求失败: 状态码 %d, 响应: %s", resp.StatusCode, string(body))
-	}
-
-	var response ChatResponse
-	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, fmt.Errorf("解析响应失败: %w", err)
-	}
-
-	return &response, nil
 }
 
 // GenerateRequestID generates a random request ID
@@ -236,4 +171,147 @@ func GetIPInfo(ip string) (*IPInfo, error) {
 	}
 
 	return &info, nil
+}
+
+// StreamChatRequest sends a streaming chat request to the API and returns a response channel
+func ChatRequest(ctx context.Context, url, key, model, imageURL string, maxTokens int, useStream bool) (<-chan string, error) {
+
+	logger.Debug("use stream: %t", useStream)
+	payload := map[string]interface{}{
+		"model": model,
+		"messages": []map[string]interface{}{
+			{
+				"role": "user",
+				"content": []map[string]interface{}{
+					{
+						"type": "text",
+						"text": "What is this?",
+					},
+					{
+						"type": "image_url",
+						"image_url": map[string]interface{}{
+							"url":    imageURL,
+							"detail": "low",
+						},
+					},
+				},
+			},
+		},
+		"max_tokens":  maxTokens,
+		"stream":      useStream,
+		"temperature": 0.7,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request failed: %v", err)
+	}
+
+	logger.Debug("sending request to %s with payload: %s", url, string(jsonData))
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("create request failed: %v", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", key))
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("send request failed: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		logger.Debug("API request failed with status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Handle non-streaming response
+	if !useStream {
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("read response failed: %v", err)
+		}
+		var response struct {
+			Choices []struct {
+				Message struct {
+					Content string `json:"content"`
+				} `json:"message"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal(body, &response); err != nil {
+			return nil, fmt.Errorf("unmarshal response failed: %v", err)
+		}
+		if len(response.Choices) == 0 {
+			return nil, fmt.Errorf("empty response from API")
+		}
+		responseChan := make(chan string, 1)
+		responseChan <- response.Choices[0].Message.Content
+		close(responseChan)
+		logger.Debug("non-stream response: %s", response.Choices[0].Message.Content)
+		return responseChan, nil
+	}
+
+	// Handle streaming response
+	responseChan := make(chan string, 1)
+	go func() {
+		defer resp.Body.Close()
+		defer close(responseChan)
+
+		reader := bufio.NewReader(resp.Body)
+		var fullResponse strings.Builder
+		logger.Debug("start streaming")
+
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					logger.Debug("stream completed, full response: %s", fullResponse.String())
+					responseChan <- fullResponse.String()
+					return
+				}
+				logger.Debug("read stream failed: %v", err)
+				return
+			}
+
+			line = strings.TrimSpace(line)
+			if line == "" || line == "data: [DONE]" {
+				continue
+			}
+
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+
+			data := strings.TrimPrefix(line, "data: ")
+			var streamResp struct {
+				Choices []struct {
+					Delta struct {
+						Content string `json:"content"`
+					} `json:"delta"`
+				} `json:"choices"`
+			}
+
+			if err := json.Unmarshal([]byte(data), &streamResp); err != nil {
+				logger.Debug("failed to unmarshal stream response: %v, data: %s", err, data)
+				continue
+			}
+
+			if len(streamResp.Choices) > 0 && streamResp.Choices[0].Delta.Content != "" {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					fullResponse.WriteString(streamResp.Choices[0].Delta.Content)
+				}
+			}
+		}
+	}()
+
+	return responseChan, nil
 }

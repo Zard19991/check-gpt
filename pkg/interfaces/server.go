@@ -29,6 +29,6 @@ type TunnelFactory interface {
 
 // ImageGenerator 定义图片生成器接口
 type ImageGenerator interface {
-	GenerateStripes(width, height, stripeWidth int) ([]byte, error)
+	GenerateStripes(width, height int) ([]byte, error)
 	GetColors() []string
 }

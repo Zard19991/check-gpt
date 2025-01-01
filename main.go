@@ -54,7 +54,7 @@ func startServer(ctx context.Context, srv *server.Server) error {
 	}
 }
 
-func runDetection(ctx context.Context, srv *server.Server, apiCfg *api.Config) error {
+func runDetection(ctx context.Context, srv *server.Server, apiCfg *api.Config, useStream bool) error {
 	// Clear screen and show detection info
 	util.ClearConsole()
 	fmt.Printf("=== API 中转链路检测工具 ===\n")
@@ -74,8 +74,8 @@ func runDetection(ctx context.Context, srv *server.Server, apiCfg *api.Config) e
 	// Start trace manager
 	tracer.Start(ctx)
 
-	// Start detection
-	go srv.SendPostRequest(ctx, apiCfg.URL, apiCfg.Key, apiCfg.Model)
+	// Start API request in background
+	go srv.SendPostRequest(ctx, apiCfg.URL, apiCfg.Key, apiCfg.Model, useStream)
 
 	select {
 	case <-ctx.Done():
@@ -136,7 +136,7 @@ func main() {
 	}
 
 	// Run detection
-	if err := runDetection(ctx, srv, apiCfg); err != nil {
+	if err := runDetection(ctx, srv, apiCfg, cfg.Stream); err != nil {
 		fmt.Printf("错误: %v\n", err)
 		srv.Shutdown()
 		os.Exit(1)

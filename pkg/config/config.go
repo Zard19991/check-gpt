@@ -5,6 +5,14 @@ import (
 	"time"
 )
 
+// ImageType represents the type of image to generate
+type ImageType string
+
+const (
+	PNG  ImageType = "png"
+	JPEG ImageType = "jpeg"
+)
+
 // Config represents the application configuration
 type Config struct {
 	Port         int
@@ -16,7 +24,8 @@ type Config struct {
 	ImagePath    string
 	ImageWidth   int
 	ImageHeight  int
-	StripeWidth  int
+	ImageType    ImageType
+	Stream       bool
 }
 
 var debug bool
@@ -42,6 +51,7 @@ func New() *Config {
 		ImagePath:    "/image",
 		ImageWidth:   50,
 		ImageHeight:  50,
-		StripeWidth:  10,
+		ImageType:    PNG,
+		Stream:       true,
 	}
 }

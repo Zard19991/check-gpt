@@ -24,8 +24,6 @@ func (m *mockMessageSender) MessageChan() <-chan types.Message {
 }
 
 func (m *mockMessageSender) Send(msg types.Message) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.msgChan <- msg
 }
 

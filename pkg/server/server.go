@@ -20,18 +20,6 @@ import (
 	"github.com/go-coders/check-trace/pkg/util"
 )
 
-const (
-	// ANSI color codes
-	colorReset  = "\033[0m"
-	colorRed    = "\033[31m"
-	colorGreen  = "\033[32m"
-	colorYellow = "\033[33m"
-	colorBlue   = "\033[34m"
-	colorPurple = "\033[35m"
-	colorCyan   = "\033[36m"
-	colorGray   = "\033[37m"
-)
-
 // Server represents the main application server
 type Server struct {
 	config        *config.Config
@@ -45,10 +33,9 @@ type Server struct {
 	requestID     string
 	imgGen        interfaces.ImageGenerator
 	client        *http.Client
-	traceManager  interfaces.TraceManager
-	traceReader   interfaces.TraceReader
-	imgCache      []byte    // 图片缓存
-	imgCacheLock  sync.Once // 确保图片只生成一次
+
+	imgCache     []byte    // 图片缓存
+	imgCacheLock sync.Once // 确保图片只生成一次
 }
 
 // TunnelFactory creates new tunnels
@@ -128,7 +115,7 @@ func New(cfg *config.Config, opts ...ServerOption) *Server {
 		done:          make(chan struct{}),
 		ready:         make(chan struct{}),
 		requestID:     util.GenerateRequestID(),
-		imgGen:        image.New(util.GetRandomUniqueColors(3)),
+		imgGen:        image.New(util.GetRandomUniqueColors(2), cfg.ImageType),
 		tunnelFactory: &defaultTunnelFactory{},
 		client:        &http.Client{},
 	}
@@ -255,12 +242,25 @@ func (s *Server) handleImage(c *gin.Context) {
 		}
 	}()
 
+	// Get image type from query parameter or use default
+	imageType := s.config.ImageType
+	if typeParam := c.Query("type"); typeParam != "" {
+		switch typeParam {
+		case "png":
+			imageType = config.PNG
+		case "jpeg", "jpg":
+			imageType = config.JPEG
+		}
+	}
+
 	// debug ip and request method
-	logger.Debug("recieve request from: %s %s", c.ClientIP(), c.Request.Method)
+	logger.Debug("recieve request from: %s %s, image type: %s", c.ClientIP(), c.Request.Method, imageType)
 
 	// 懒加载方式生成图片
 	s.imgCacheLock.Do(func() {
-		imgData, err := s.imgGen.GenerateStripes(s.config.ImageWidth, s.config.ImageHeight, s.config.StripeWidth)
+		// Create new generator with requested image type
+		s.imgGen = image.New(util.GetRandomUniqueColors(2), imageType)
+		imgData, err := s.imgGen.GenerateStripes(s.config.ImageWidth, s.config.ImageHeight)
 		if err != nil {
 			logger.Debug("Failed to generate image: %v", err)
 			return
@@ -275,7 +275,12 @@ func (s *Server) handleImage(c *gin.Context) {
 		return
 	}
 
-	c.Header("Content-Type", "image/png")
+	contentType := "image/png"
+	if imageType == config.JPEG {
+		contentType = "image/jpeg"
+	}
+
+	c.Header("Content-Type", contentType)
 	c.Header("Content-Length", fmt.Sprintf("%d", len(s.imgCache)))
 
 	if c.Request.Method == "HEAD" {
@@ -284,18 +289,46 @@ func (s *Server) handleImage(c *gin.Context) {
 		return
 	}
 
-	c.Data(http.StatusOK, "image/png", s.imgCache)
+	c.Data(http.StatusOK, contentType, s.imgCache)
 }
 
 // SendPostRequest sends a POST request to test the API
-func (s *Server) SendPostRequest(ctx context.Context, url, key, model string) {
+func (s *Server) SendPostRequest(ctx context.Context, url, key, model string, useStream bool) {
 	ctx, cancel := context.WithTimeout(ctx, s.config.Timeout)
 	defer cancel()
 
 	imageURL := s.TunnelURL() + fmt.Sprintf("%s?id=%s", s.config.ImagePath, s.requestID)
-	resp, err := util.SendChatRequest(ctx, url, key, model, imageURL, s.config.MaxTokens)
+	logger.Debug("image url: %s", imageURL)
+
+	// Show the request message with color information first
+	requestMsg := fmt.Sprintf("请求: What is this? (发送一个彩色%dx%d像素的对角条纹%s图片, colors: %s)",
+		s.config.ImageWidth, s.config.ImageHeight,
+		strings.ToUpper(string(s.config.ImageType)),
+		strings.Join(s.imgGen.GetColors(), ", "))
+	requestMsg = fmt.Sprintf("%s, max_tokens: %d", requestMsg, s.config.MaxTokens)
+
+	responseChan, err := util.ChatRequest(ctx, url, key, model, imageURL, s.config.MaxTokens, useStream)
 	if err != nil {
-		if err == context.DeadlineExceeded {
+		s.msgChan <- types.Message{
+			Type:    types.MessageTypeError,
+			Content: fmt.Sprintf("API请求失败: %v", err),
+		}
+		close(s.done)
+		return
+	}
+
+	select {
+	case response := <-responseChan:
+		// Send complete response
+		logger.Debug("response: %s", response)
+		s.msgChan <- types.Message{
+			Type:    types.MessageTypeAPI,
+			Content: fmt.Sprintf("请求: %s\n响应: %s", requestMsg, response),
+		}
+		close(s.done)
+
+	case <-ctx.Done():
+		if ctx.Err() == context.DeadlineExceeded {
 			s.msgChan <- types.Message{
 				Type:    types.MessageTypeError,
 				Content: fmt.Sprintf("API请求超时,未能获取到响应, 超过%s", s.config.Timeout),
@@ -303,28 +336,12 @@ func (s *Server) SendPostRequest(ctx context.Context, url, key, model string) {
 		} else {
 			s.msgChan <- types.Message{
 				Type:    types.MessageTypeError,
-				Content: fmt.Sprintf("API请求失败: %v", err),
+				Content: "请求被取消",
 			}
 		}
-		return
+		close(s.done)
 	}
-
-	// Show the request message with color information
-	requestMsg := fmt.Sprintf("请求: What is this? (发送一个彩色%dx%d像素的对角条纹PNG图片, colors: %s)", s.config.ImageWidth, s.config.ImageHeight, strings.Join(s.imgGen.GetColors(), ", "))
-	requestMsg = fmt.Sprintf("%s, max_tokens: %d", requestMsg, s.config.MaxTokens)
-	responseMsg := ""
-	if len(resp.Choices) > 0 {
-		responseMsg = fmt.Sprintf("响应: %s", resp.Choices[0].Message.Content)
-	} else {
-		responseMsg = "响应: 无法获取响应"
-	}
-
-	msg := fmt.Sprintf("%s\n%s", requestMsg, responseMsg)
-	s.msgChan <- types.Message{
-		Type:    types.MessageTypeAPI,
-		Content: msg,
-	}
-	close(s.done)
+	logger.Debug("done-++")
 }
 
 // MessageChan returns the message channel

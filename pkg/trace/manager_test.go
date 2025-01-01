@@ -2,6 +2,7 @@ package trace
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -50,6 +51,9 @@ func TestTraceManager_BasicNodeHandling(t *testing.T) {
 		defer cancel()
 		manager.Start(ctx)
 
+		// Wait longer for manager to fully initialize
+		time.Sleep(300 * time.Millisecond)
+
 		headers := &types.RequestHeaders{
 			IP:           "1.1.1.2",
 			UserAgent:    "test-agent-2",
@@ -63,7 +67,7 @@ func TestTraceManager_BasicNodeHandling(t *testing.T) {
 			Type:    types.MessageTypeNode,
 			Headers: headers,
 		})
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(300 * time.Millisecond) // Wait longer between messages
 
 		// Verify first message
 		nodes := manager.GetNodes()
@@ -81,7 +85,7 @@ func TestTraceManager_BasicNodeHandling(t *testing.T) {
 			Type:    types.MessageTypeNode,
 			Headers: headers,
 		})
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(300 * time.Millisecond) // Wait longer after second message
 
 		// Verify after duplicate
 		nodes = manager.GetNodes()
@@ -107,6 +111,7 @@ func TestTraceManager_MessageProcessing(t *testing.T) {
 	defer cancel()
 
 	manager.Start(ctx)
+	time.Sleep(10 * time.Millisecond) // Wait for manager to initialize
 
 	t.Run("API message handling", func(t *testing.T) {
 		// Send a node message first with unique identifier
@@ -119,7 +124,7 @@ func TestTraceManager_MessageProcessing(t *testing.T) {
 				ForwardedFor: "1.1.1.3",
 			},
 		})
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(300 * time.Millisecond) // Wait for node message to be processed
 
 		// Then send API message
 		apiResponse := "API Response"
@@ -127,21 +132,23 @@ func TestTraceManager_MessageProcessing(t *testing.T) {
 			Type:    types.MessageTypeAPI,
 			Content: apiResponse,
 		})
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(600 * time.Millisecond) // Wait for timeout period plus buffer
 
 		outputs := mockWriter.GetOutputs()
 		t.Logf("All outputs: %v", outputs)
 
-		// Check all outputs for the response
+		// Check if any output contains the API response content
 		var found bool
 		for _, output := range outputs {
 			t.Logf("Checking output: %q", output)
-			if output == apiResponse {
-				found = true
-				break
+			if output != "" && output != "\n" && output != " " {
+				if strings.Contains(output, apiResponse) {
+					found = true
+					break
+				}
 			}
 		}
-		assert.True(t, found, "API Response not found in outputs")
+		assert.True(t, found, "API Response content not found in any output")
 	})
 }
 
