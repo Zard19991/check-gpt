@@ -13,6 +13,7 @@ type Message struct {
 	Type    MessageType
 	Content string
 	Headers *RequestHeaders
+	Error   error
 }
 
 type MessageType int

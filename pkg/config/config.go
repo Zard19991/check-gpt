@@ -49,8 +49,8 @@ func New() *Config {
 		MaxTokens:    20,
 		DefaultModel: "gpt-4o",
 		ImagePath:    "/image",
-		ImageWidth:   50,
-		ImageHeight:  50,
+		ImageWidth:   30,
+		ImageHeight:  30,
 		ImageType:    PNG,
 		Stream:       true,
 	}

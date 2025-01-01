@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -104,8 +105,9 @@ func New(cfg *config.Config, opts ...ServerOption) *Server {
 	corsConfig := cors.DefaultConfig()
 	corsConfig.AllowAllOrigins = true
 	corsConfig.AllowCredentials = true
-	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
-	corsConfig.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization"}
+	corsConfig.AllowMethods = []string{"*"}
+	corsConfig.AllowHeaders = []string{"*"}
+
 	router.Use(cors.New(corsConfig))
 
 	s := &Server{
@@ -298,7 +300,7 @@ func (s *Server) SendPostRequest(ctx context.Context, url, key, model string, us
 	defer cancel()
 
 	imageURL := s.TunnelURL() + fmt.Sprintf("%s?id=%s", s.config.ImagePath, s.requestID)
-	logger.Debug("image url: %s", imageURL)
+	logger.Debug("image path: %s", imageURL)
 
 	// Show the request message with color information first
 	requestMsg := fmt.Sprintf("请求: What is this? (发送一个彩色%dx%d像素的对角条纹%s图片, colors: %s)",
@@ -307,28 +309,9 @@ func (s *Server) SendPostRequest(ctx context.Context, url, key, model string, us
 		strings.Join(s.imgGen.GetColors(), ", "))
 	requestMsg = fmt.Sprintf("%s, max_tokens: %d", requestMsg, s.config.MaxTokens)
 
-	responseChan, err := util.ChatRequest(ctx, url, key, model, imageURL, s.config.MaxTokens, useStream)
+	response, err := util.ChatRequest(ctx, url, key, model, imageURL, s.config.MaxTokens, useStream)
 	if err != nil {
-		s.msgChan <- types.Message{
-			Type:    types.MessageTypeError,
-			Content: fmt.Sprintf("API请求失败: %v", err),
-		}
-		close(s.done)
-		return
-	}
-
-	select {
-	case response := <-responseChan:
-		// Send complete response
-		logger.Debug("response: %s", response)
-		s.msgChan <- types.Message{
-			Type:    types.MessageTypeAPI,
-			Content: fmt.Sprintf("请求: %s\n响应: %s", requestMsg, response),
-		}
-		close(s.done)
-
-	case <-ctx.Done():
-		if ctx.Err() == context.DeadlineExceeded {
+		if errors.Is(err, context.DeadlineExceeded) {
 			s.msgChan <- types.Message{
 				Type:    types.MessageTypeError,
 				Content: fmt.Sprintf("API请求超时,未能获取到响应, 超过%s", s.config.Timeout),
@@ -336,12 +319,19 @@ func (s *Server) SendPostRequest(ctx context.Context, url, key, model string, us
 		} else {
 			s.msgChan <- types.Message{
 				Type:    types.MessageTypeError,
-				Content: "请求被取消",
+				Content: fmt.Sprintf("API请求失败: %v", err),
 			}
+			close(s.done)
+			return
 		}
-		close(s.done)
 	}
-	logger.Debug("done-++")
+
+	// 发送响应
+	s.msgChan <- types.Message{
+		Type:    types.MessageTypeAPI,
+		Content: fmt.Sprintf("请求: %s\n响应: %s", requestMsg, response),
+	}
+
 }
 
 // MessageChan returns the message channel

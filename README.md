@@ -1,7 +1,6 @@
 # API 中转链路检测工具
 
 [![Tests](https://github.com/go-coders/check-trace/actions/workflows/test.yml/badge.svg)](https://github.com/go-coders/check-trace/actions/workflows/test.yml)
-[![codecov](https://codecov.io/gh/tony/check/branch/main/graph/badge.svg)](https://codecov.io/gh/tony/check)
 [![Go Report Card](https://goreportcard.com/badge/github.com/go-coders/check-trace)](https://goreportcard.com/report/github.com/go-coders/check-trace)
 
 一个用于检测 API 中转链路的命令行工具。通过分析请求链路上的代理节点，帮助您了解 API 请求的转发路径。
