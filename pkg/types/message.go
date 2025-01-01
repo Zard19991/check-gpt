@@ -37,11 +37,11 @@ type Node struct {
 	Country      string
 	Time         time.Time
 	UserAgent    string
-	Location     string
-	ISP          string
 	RequestInfo  string
 	ForwardedFor string
 	RequestCount int // Track number of requests for this node
 	IsNew        bool
 	NodeIndex    int
+	RegionName   string
+	Org          string
 }

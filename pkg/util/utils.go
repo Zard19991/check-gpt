@@ -211,6 +211,7 @@ type IPInfo struct {
 	City       string `json:"city"`
 	ISP        string `json:"isp"`
 	Query      string `json:"query"`
+	Org        string `json:"org"`
 }
 
 // GetIPInfo retrieves location and ISP information for an IP address

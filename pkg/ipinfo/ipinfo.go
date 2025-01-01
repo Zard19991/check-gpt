@@ -15,6 +15,7 @@ type Info struct {
 	City       string
 	RegionName string
 	ISP        string
+	Org        string
 }
 
 // DefaultProvider implements Provider using the util package
@@ -35,5 +36,6 @@ func (p *DefaultProvider) GetIPInfo(ip string) (*Info, error) {
 		City:       info.City,
 		RegionName: info.RegionName,
 		ISP:        info.ISP,
+		Org:        info.Org,
 	}, nil
 }

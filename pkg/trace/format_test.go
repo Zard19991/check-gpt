@@ -18,22 +18,26 @@ func TestFormatNodeInfo(t *testing.T) {
 			name:    "Basic node info",
 			nodeNum: 1,
 			node: &types.Node{
-				IP:        "1.1.1.1",
-				UserAgent: "Mozilla/5.0",
-				Country:   "Test Country",
-				Location:  "Test City, Test Region",
-				ISP:       "Test ISP",
+				IP:         "1.1.1.1",
+				UserAgent:  "Mozilla/5.0",
+				Country:    "Test Country",
+				RegionName: "Test Region",
+				Org:        "Test ISP",
 			},
-			expected: "   节点1 : Mozilla/5.0服务IP: 1.1.1.1 (Test City - Test ISP)",
+			// update to this formt "Boydton,United States - MICROSOFT"
+			expected: "   节点1 : Mozilla/5.0服务IP: 1.1.1.1 (Test Region,Test Country - Test ISP)",
 		},
 		{
 			name:    "Empty location and ISP",
 			nodeNum: 2,
 			node: &types.Node{
-				IP:        "2.2.2.2",
-				UserAgent: "curl/7.64.1",
+				IP:         "2.2.2.2",
+				UserAgent:  "curl/7.64.1",
+				Country:    "Test Country",
+				RegionName: "Test Region2",
+				Org:        "Test ISP2",
 			},
-			expected: "   节点2 : curl/7.64.1服务IP: 2.2.2.2 (Test City - Test ISP)",
+			expected: "   节点2 : curl/7.64.1服务IP: 2.2.2.2 (Test Region2,Test Country - Test ISP2)",
 		},
 	}
 
