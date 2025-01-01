@@ -5,31 +5,43 @@ import (
 	"time"
 )
 
-// Config holds all configuration settings
+// Config represents the application configuration
 type Config struct {
+	Port         int
 	Debug        bool
 	Version      bool
-	Port         int
-	MaxRetries   int
-	RetryDelay   time.Duration
 	Timeout      time.Duration
-	ImagePath    string
-	DefaultModel string
 	MaxTokens    int
+	DefaultModel string
+	ImagePath    string
+	ImageWidth   int
+	ImageHeight  int
+	StripeWidth  int
+}
+
+var debug bool
+var version bool
+
+// parse debug and version from command line
+func parseDebugAndVersion() {
+	flag.BoolVar(&debug, "debug", false, "enable debug logging")
+	flag.BoolVar(&version, "version", false, "show version")
+	flag.Parse()
 }
 
 // New creates a new configuration with default values
 func New() *Config {
-	cfg := &Config{}
-	flag.BoolVar(&cfg.Debug, "debug", false, "启用调试模式")
-	flag.BoolVar(&cfg.Version, "version", false, "显示版本信息")
-	flag.Parse()
-
-	// Set default values
-	cfg.Port = 8921
-	cfg.Timeout = 60 * time.Second
-	cfg.ImagePath = "/static/image"
-	cfg.DefaultModel = "gpt-4o"
-	cfg.MaxTokens = 20
-	return cfg
+	parseDebugAndVersion()
+	return &Config{
+		Port:         8080,
+		Debug:        debug,
+		Version:      version,
+		Timeout:      time.Second * 30,
+		MaxTokens:    20,
+		DefaultModel: "gpt-4o",
+		ImagePath:    "/image",
+		ImageWidth:   50,
+		ImageHeight:  50,
+		StripeWidth:  10,
+	}
 }

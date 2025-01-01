@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Tunnel represents an SSH tunnel connection
+// Tunnel implements interfaces.Tunnel
 type Tunnel struct {
 	cmd    *exec.Cmd
 	url    string
