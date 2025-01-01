@@ -147,7 +147,7 @@ func (r *ConfigReader) ReadConfig(defaultModel string) (*Config, error) {
 	bufReader := bufio.NewReader(r.input)
 
 	fmt.Fprintf(r.output, "\n=== API 中转链路检测工具 ===\n")
-	fmt.Fprintf(r.output, "\n请输入API信息 (URL和Key，顺序不限):\n")
+	fmt.Fprintf(r.output, "\n请同时输入URL和Key, 顺序不限:\n")
 
 	// 读取输入并实时处理
 	var input strings.Builder

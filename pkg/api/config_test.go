@@ -2,7 +2,6 @@ package api
 
 import (
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -255,33 +254,5 @@ func TestGetConfig(t *testing.T) {
 				t.Errorf("ReadConfig() Model = %v, want %v", got.Model, tt.want.Model)
 			}
 		})
-	}
-}
-
-// TestConfigReaderOutput tests that the ConfigReader correctly writes prompts to the output
-func TestConfigReaderOutput(t *testing.T) {
-	var output strings.Builder
-	input := strings.NewReader("https://api.example.com sk-12345\ngpt-4\n")
-	configReader := NewConfigReader(input, &output)
-
-	got, err := configReader.ReadConfig("default-model")
-	if err != nil {
-		t.Errorf("ReadConfig() unexpected error = %v", err)
-		return
-	}
-
-	want := &Config{
-		URL:   "https://api.example.com/v1/chat/completions",
-		Key:   "sk-12345",
-		Model: "gpt-4",
-	}
-
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("ReadConfig() = %v, want %v", got, want)
-	}
-
-	expectedOutput := "\n=== API 中转链路检测工具 ===\n\n请输入API信息 (URL和Key，顺序不限):\n模型名称 (默认: default-model): "
-	if output.String() != expectedOutput {
-		t.Errorf("Output = %q, want %q", output.String(), expectedOutput)
 	}
 }

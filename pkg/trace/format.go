@@ -19,15 +19,20 @@ func formatNodeInfo(nodeIndex int, node *types.Node, provider ipinfo.Provider) s
 		return fmt.Sprintf("   节点%d : 未知服务IP: %s", nodeIndex, node.IP)
 	}
 
-	// Only update node fields if they are empty
-	if node.Country == "" {
-		node.Country = info.Country
+	// Use node fields if they exist, otherwise use info fields
+	country := node.Country
+	if country == "" {
+		country = info.Country
 	}
-	if node.RegionName == "" {
-		node.RegionName = info.RegionName
+
+	regionName := node.RegionName
+	if regionName == "" {
+		regionName = info.RegionName
 	}
-	if node.Org == "" {
-		node.Org = info.Org
+
+	org := node.Org
+	if org == "" {
+		org = info.Org
 	}
 
 	// get server from util.GetServer
@@ -42,7 +47,7 @@ func formatNodeInfo(nodeIndex int, node *types.Node, provider ipinfo.Provider) s
 
 	// add country
 	return fmt.Sprintf("%s%d : %sIP: %s (%s,%s - %s)",
-		nodeSpace, nodeIndex, serviceText, node.IP, node.RegionName, node.Country, node.Org)
+		nodeSpace, nodeIndex, serviceText, node.IP, regionName, country, org)
 }
 
 func formatNodeRequestCounts(nodes []types.Node) string {

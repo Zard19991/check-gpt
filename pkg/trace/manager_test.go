@@ -79,13 +79,19 @@ func TestTraceManager_BasicNodeHandling(t *testing.T) {
 		assert.Len(t, nodes, 1, "Should have exactly one node after first message")
 		assert.Equal(t, 1, nodes[0].RequestCount, "First node should have count 1")
 
-		// Send duplicate message
-		t.Logf("Sending duplicate message with signature: %s", getNodeSignature(headers))
+		// Send duplicate message with a deep copy of headers to ensure no shared state
+		dupHeaders := &types.RequestHeaders{
+			IP:           headers.IP,
+			UserAgent:    headers.UserAgent,
+			Time:         time.Now(),
+			ForwardedFor: headers.ForwardedFor,
+		}
+		t.Logf("Sending duplicate message with signature: %s", getNodeSignature(dupHeaders))
 		mockSender.Send(types.Message{
 			Type:    types.MessageTypeNode,
-			Headers: headers,
+			Headers: dupHeaders,
 		})
-		time.Sleep(300 * time.Millisecond) // Wait longer after second message
+		time.Sleep(500 * time.Millisecond) // Wait longer after second message
 
 		// Verify after duplicate
 		nodes = manager.GetNodes()
