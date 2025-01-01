@@ -9,7 +9,24 @@ import (
 	"github.com/go-coders/check-trace/pkg/types"
 )
 
-// TraceManager manages trace information
+const (
+	opGet    = "get"
+	opHandle = "handle"
+)
+
+// Define operation types
+type nodeOperation struct {
+	op       string
+	msg      *types.Message
+	response chan nodeResponse
+}
+
+type nodeResponse struct {
+	node  *types.Node
+	nodes []types.Node
+	err   error
+}
+
 type TraceManager struct {
 	nodes        []types.Node
 	sender       types.MessageSender
@@ -17,6 +34,7 @@ type TraceManager struct {
 	seen         map[string]bool
 	ipProvider   ipinfo.Provider
 	outputWriter interfaces.OutputWriter
+	nodesChan    chan nodeOperation
 }
 
 // TraceManagerOption defines a function type for configuring TraceManager
@@ -44,6 +62,7 @@ func New(sender types.MessageSender, opts ...TraceManagerOption) *TraceManager {
 		seen:         make(map[string]bool),
 		ipProvider:   ipinfo.NewProvider(),
 		outputWriter: &defaultOutputWriter{},
+		nodesChan:    make(chan nodeOperation),
 	}
 
 	for _, opt := range opts {
@@ -56,44 +75,79 @@ func New(sender types.MessageSender, opts ...TraceManagerOption) *TraceManager {
 // Start starts the trace manager
 func (t *TraceManager) Start(ctx context.Context) {
 	logger.Debug("Starting trace recording")
+	go t.handleNodeOperations(ctx)
 	go t.pollMessages(ctx)
 }
 
-// handleNodeMessage processes a node message and returns the node number and whether it's new
-func (t *TraceManager) handleNodeMessage(msg types.Message) *types.Node {
-	sig := getNodeSignature(msg.Headers)
-
-	logger.Debug("handleNodeMessage %+v", sig)
-	if !t.seen[sig] {
-		nodeIndex := len(t.nodes) + 1
-		t.seen[sig] = true
-		node := types.Node{
-			IP:           msg.Headers.IP,
-			UserAgent:    msg.Headers.UserAgent,
-			Time:         msg.Headers.Time,
-			RequestCount: 1,
-			NodeIndex:    nodeIndex,
-			IsNew:        true,
-			ForwardedFor: msg.Headers.ForwardedFor,
+// Update handleNodeOperations to ensure proper state updates
+func (t *TraceManager) handleNodeOperations(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case op := <-t.nodesChan:
+			switch op.op {
+			case opGet:
+				nodes := t.getNodesSnapshot()
+				op.response <- nodeResponse{nodes: nodes}
+			case opHandle:
+				node := t.processNodeMessage(op.msg)
+				op.response <- nodeResponse{node: node}
+			}
+			close(op.response)
 		}
-		t.nodes = append(t.nodes, node)
-		return &node
+	}
+}
+
+func (t *TraceManager) getNodesSnapshot() []types.Node {
+	nodes := make([]types.Node, len(t.nodes))
+	copy(nodes, t.nodes)
+	return nodes
+}
+
+func (t *TraceManager) processNodeMessage(msg *types.Message) *types.Node {
+	if msg == nil {
+		return nil
 	}
 
-	// Find and update the existing node
+	sig := getNodeSignature(msg.Headers)
+	logger.Debug("Handling node message with signature: %s", sig)
+
+	node := t.findOrCreateNode(msg)
+	return &node
+}
+
+func (t *TraceManager) findOrCreateNode(msg *types.Message) types.Node {
+	// Try to find an existing node
 	for i := range t.nodes {
-		if getNodeSignature(&types.RequestHeaders{
-			UserAgent:    t.nodes[i].UserAgent,
-			ForwardedFor: t.nodes[i].ForwardedFor,
-			IP:           t.nodes[i].IP,
-		}) == sig {
+		if t.nodeMatches(&t.nodes[i], msg) {
+			logger.Debug("Found match at index %d, count before: %d", i, t.nodes[i].RequestCount)
 			t.nodes[i].RequestCount++
 			t.nodes[i].IsNew = false
-			return &t.nodes[i]
+			logger.Debug("Updated count to: %d", t.nodes[i].RequestCount)
+			return t.nodes[i]
 		}
 	}
 
-	return nil
+	// Create new node if not found
+	logger.Debug("Creating new node")
+	newNode := types.Node{
+		IP:           msg.Headers.IP,
+		UserAgent:    msg.Headers.UserAgent,
+		Time:         msg.Headers.Time,
+		RequestCount: 1,
+		NodeIndex:    len(t.nodes) + 1,
+		IsNew:        true,
+		ForwardedFor: msg.Headers.ForwardedFor,
+	}
+	t.nodes = append(t.nodes, newNode)
+	return newNode
+}
+
+func (t *TraceManager) nodeMatches(node *types.Node, msg *types.Message) bool {
+	return node.IP == msg.Headers.IP &&
+		node.UserAgent == msg.Headers.UserAgent &&
+		node.ForwardedFor == msg.Headers.ForwardedFor
 }
 
 // Done returns a channel that's closed when tracing is done
@@ -103,9 +157,13 @@ func (t *TraceManager) Done() <-chan struct{} {
 
 // GetNodes returns a copy of the current nodes for testing
 func (t *TraceManager) GetNodes() []types.Node {
-	nodes := make([]types.Node, len(t.nodes))
-	copy(nodes, t.nodes)
-	return nodes
+	responseChan := make(chan nodeResponse)
+	t.nodesChan <- nodeOperation{
+		op:       opGet,
+		response: responseChan,
+	}
+	result := <-responseChan
+	return result.nodes
 }
 
 // pollMessages handles incoming messages
@@ -139,7 +197,7 @@ func (t *TraceManager) pollMessages(ctx context.Context) {
 				}
 				counts := formatNodeRequestCounts(t.nodes)
 				t.outputWriter.Write(counts + "\n")
-				// 输出API请求结果
+				// Write the actual API response
 				t.outputWriter.WriteResponse(msg.Content)
 				return
 			case types.MessageTypeError:
@@ -150,4 +208,15 @@ func (t *TraceManager) pollMessages(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (t *TraceManager) handleNodeMessage(msg types.Message) *types.Node {
+	responseChan := make(chan nodeResponse)
+	t.nodesChan <- nodeOperation{
+		op:       opHandle,
+		msg:      &msg,
+		response: responseChan,
+	}
+	result := <-responseChan
+	return result.node
 }
