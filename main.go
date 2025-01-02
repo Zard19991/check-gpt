@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/go-coders/check-trace/pkg/api"
 	"github.com/go-coders/check-trace/pkg/config"
@@ -76,7 +75,6 @@ func runDetection(ctx context.Context, srv *server.Server, cfg *config.Config) e
 	case <-ctx.Done():
 		return fmt.Errorf("context cancelled")
 	case <-tracer.Done():
-		time.Sleep(time.Second * 10000)
 		return nil
 	}
 
