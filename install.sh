@@ -197,7 +197,7 @@ get_install_dir() {
 
 # 安装工具
 install_tool() {
-    print_message "开始安装 API 中转链路检测工具..."
+    print_message "开始安装 GPT 中转链路检测..."
     
     # 获取系统信息
     get_system_info
@@ -284,7 +284,7 @@ install_tool() {
 
 # 主流程
 main() {
-    print_message "=== 安装 API 中转链路检测工具 ==="
+    print_message "=== 安装 GPT中转链路检测 ==="
     
     # 检查已安装版本并处理安装/升级
     check_and_install || exit 1

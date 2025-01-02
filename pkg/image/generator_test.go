@@ -95,8 +95,8 @@ func TestGenerateStripes(t *testing.T) {
 
 func TestGetColors(t *testing.T) {
 	colors := []util.ColorInfo{
-		{Color: color.RGBA{R: 255, G: 0, B: 0, A: 255}, Name: "Red"},
-		{Color: color.RGBA{R: 0, G: 255, B: 0, A: 255}, Name: "Green"},
+		{Color: color.RGBA{R: 255, G: 0, B: 0, A: 255}, Name: "Red", ChineseName: "红色"},
+		{Color: color.RGBA{R: 0, G: 255, B: 0, A: 255}, Name: "Green", ChineseName: "绿色"},
 	}
 
 	generator := New(colors, config.PNG)
@@ -109,8 +109,8 @@ func TestGetColors(t *testing.T) {
 
 	for i, want := range colors {
 		got := gotColors[i]
-		if got != want.Name {
-			t.Errorf("Color[%d] = %v, want %v", i, got, want.Name)
+		if got != want.ChineseName {
+			t.Errorf("Color[%d] = %v, want %v", i, got, want.ChineseName)
 		}
 	}
 }

@@ -14,9 +14,10 @@ type Tunnel struct {
 	cmd    *exec.Cmd
 	url    string
 	stdout io.ReadCloser
+	ready  chan struct{} // Channel to signal when tunnel is ready
 }
 
-// New creates and starts a new SSH tunnel
+// New creates and starts a new SSH tunnel asynchronously
 func New(port int) (*Tunnel, error) {
 	cmd := exec.Command("ssh", "-R", fmt.Sprintf("80:localhost:%d", port), "nokey@localhost.run", "-o", "StrictHostKeyChecking=no")
 	stdout, err := cmd.StdoutPipe()
@@ -31,14 +32,22 @@ func New(port int) (*Tunnel, error) {
 	tunnel := &Tunnel{
 		cmd:    cmd,
 		stdout: stdout,
+		ready:  make(chan struct{}),
 	}
 
-	// 使用通道和超时控制
+	// Start async URL detection
+	go tunnel.waitForURL()
+
+	return tunnel, nil
+}
+
+// waitForURL waits for the tunnel URL to become available
+func (t *Tunnel) waitForURL() {
 	urlChan := make(chan string, 1)
 	errChan := make(chan error, 1)
 
 	go func() {
-		scanner := bufio.NewScanner(stdout)
+		scanner := bufio.NewScanner(t.stdout)
 		for scanner.Scan() {
 			line := scanner.Text()
 			if strings.Contains(line, "https://") {
@@ -54,18 +63,25 @@ func New(port int) (*Tunnel, error) {
 		}
 	}()
 
-	// 等待URL或超时
+	// Wait for URL or timeout
 	select {
 	case url := <-urlChan:
-		tunnel.url = url
-		return tunnel, nil
+		t.url = url
+		close(t.ready) // Signal that tunnel is ready
 	case err := <-errChan:
-		cmd.Process.Kill()
-		return nil, err
+		t.url = fmt.Sprintf("Error: %v", err)
+		t.Close()
+		close(t.ready)
 	case <-time.After(15 * time.Second):
-		cmd.Process.Kill()
-		return nil, fmt.Errorf("获取隧道URL超时")
+		t.url = "Error: Tunnel timeout"
+		t.Close()
+		close(t.ready)
 	}
+}
+
+// Ready returns a channel that's closed when the tunnel is ready to use
+func (t *Tunnel) Ready() <-chan struct{} {
+	return t.ready
 }
 
 // Close closes the tunnel and cleans up resources

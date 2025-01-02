@@ -1,9 +1,9 @@
-# API 中转链路检测工具
+# GPT 中转链路检测
 
 [![Tests](https://github.com/go-coders/check-trace/actions/workflows/test.yml/badge.svg)](https://github.com/go-coders/check-trace/actions/workflows/test.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/go-coders/check-trace)](https://goreportcard.com/report/github.com/go-coders/check-trace)
 
-一个用于检测 API 中转链路的命令行工具。通过分析请求链路上的代理节点，帮助您了解 API 请求的转发路径。
+一个用于检测 GPT 中转链路的命令行工具。通过分析请求链路上的代理节点，帮助您了解 API 请求的转发路径。
 
 ## 安装
 
@@ -35,7 +35,7 @@ API URL: https://example-api.com/v1/chat/completions
 API Key: sk-xxxx
 模型名称 (默认: gpt-4o):
 
-=== API 中转链路检测工具 ===
+=== GPT 中转链路检测 ===
 临时域名: https://hello-world-example.lhr.life
 API URL: https://example-api.com/v1/chat/completions
 API Key: sk-xxxx***

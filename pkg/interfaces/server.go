@@ -20,11 +20,7 @@ type HTTPServer interface {
 type Tunnel interface {
 	URL() string
 	Close() error
-}
-
-// TunnelFactory 定义隧道工厂接口
-type TunnelFactory interface {
-	New(port int) (Tunnel, error)
+	Ready() <-chan struct{}
 }
 
 // ImageGenerator 定义图片生成器接口

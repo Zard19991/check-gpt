@@ -15,21 +15,22 @@ func ClearConsole() {
 
 // ColorInfo represents a basic color with its name
 type ColorInfo struct {
-	Color color.RGBA
-	Name  string
+	Color       color.RGBA
+	Name        string
+	ChineseName string
 }
 
 // BasicColors provides a list of basic colors with their names
 var BasicColors = []ColorInfo{
-	{Color: color.RGBA{R: 255, G: 0, B: 0, A: 255}, Name: "Red"},
-	{Color: color.RGBA{R: 0, G: 255, B: 0, A: 255}, Name: "Green"},
-	{Color: color.RGBA{R: 0, G: 0, B: 255, A: 255}, Name: "Blue"},
-	{Color: color.RGBA{R: 255, G: 255, B: 0, A: 255}, Name: "Yellow"},
-	{Color: color.RGBA{R: 255, G: 0, B: 255, A: 255}, Name: "Magenta"},
-	{Color: color.RGBA{R: 0, G: 255, B: 255, A: 255}, Name: "Cyan"},
-	{Color: color.RGBA{R: 255, G: 165, B: 0, A: 255}, Name: "Orange"},
-	{Color: color.RGBA{R: 128, G: 0, B: 128, A: 255}, Name: "Purple"},
-	{Color: color.RGBA{R: 165, G: 42, B: 42, A: 255}, Name: "Brown"},
+	{Color: color.RGBA{R: 255, G: 0, B: 0, A: 255}, Name: "Red", ChineseName: "红色"},
+	{Color: color.RGBA{R: 0, G: 255, B: 0, A: 255}, Name: "Green", ChineseName: "绿色"},
+	{Color: color.RGBA{R: 0, G: 0, B: 255, A: 255}, Name: "Blue", ChineseName: "蓝色"},
+	{Color: color.RGBA{R: 255, G: 255, B: 0, A: 255}, Name: "Yellow", ChineseName: "黄色"},
+	{Color: color.RGBA{R: 255, G: 0, B: 255, A: 255}, Name: "Magenta", ChineseName: "品红色"},
+	{Color: color.RGBA{R: 0, G: 255, B: 255, A: 255}, Name: "Cyan", ChineseName: "青色"},
+	{Color: color.RGBA{R: 255, G: 165, B: 0, A: 255}, Name: "Orange", ChineseName: "橙色"},
+	{Color: color.RGBA{R: 128, G: 0, B: 128, A: 255}, Name: "Purple", ChineseName: "紫色"},
+	{Color: color.RGBA{R: 165, G: 42, B: 42, A: 255}, Name: "Brown", ChineseName: "棕色"},
 }
 
 // GetRandomUniqueColors returns n unique random colors from the basic colors

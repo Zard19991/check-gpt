@@ -87,7 +87,7 @@ func (g *Generator) GenerateStripes(width, height int) ([]byte, error) {
 func (g *Generator) GetColors() []string {
 	names := make([]string, len(g.colors))
 	for i, c := range g.colors {
-		names[i] = c.Name
+		names[i] = c.ChineseName
 	}
 	return names
 }

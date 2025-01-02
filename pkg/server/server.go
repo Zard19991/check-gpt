@@ -21,38 +21,28 @@ import (
 	"github.com/go-coders/check-trace/pkg/util"
 )
 
-// Server represents the main application server
-type Server struct {
-	config        *config.Config
-	router        interfaces.Router
-	httpServer    interfaces.HTTPServer
-	tunnel        interfaces.Tunnel
-	tunnelFactory interfaces.TunnelFactory
-	msgChan       chan types.Message
-	done          chan struct{}
-	ready         chan struct{}
-	requestID     string
-	imgGen        interfaces.ImageGenerator
-	client        *http.Client
-
-	imgCache     []byte    // 图片缓存
-	imgCacheLock sync.Once // 确保图片只生成一次
-}
-
-// TunnelFactory creates new tunnels
-type TunnelFactory interface {
-	New(port int) (interfaces.Tunnel, error)
-}
-
 // defaultTunnelFactory is the default implementation of TunnelFactory
 type defaultTunnelFactory struct{}
 
 func (f *defaultTunnelFactory) New(port int) (interfaces.Tunnel, error) {
-	t, err := tunnel.New(port)
-	if err != nil {
-		return nil, err
-	}
-	return t, nil
+	return tunnel.New(port)
+}
+
+// Server represents the main application server
+type Server struct {
+	config     *config.Config
+	router     interfaces.Router
+	httpServer interfaces.HTTPServer
+	tunnel     interfaces.Tunnel
+	msgChan    chan types.Message
+	done       chan struct{}
+	ready      chan struct{}
+	requestID  string
+	imgGen     interfaces.ImageGenerator
+	client     *http.Client
+
+	imgCache     []byte    // 图片缓存
+	imgCacheLock sync.Once // 确保图片只生成一次
 }
 
 // ServerOption represents a server configuration option
@@ -111,15 +101,14 @@ func New(cfg *config.Config, opts ...ServerOption) *Server {
 	router.Use(cors.New(corsConfig))
 
 	s := &Server{
-		config:        cfg,
-		router:        router,
-		msgChan:       make(chan types.Message, 100),
-		done:          make(chan struct{}),
-		ready:         make(chan struct{}),
-		requestID:     util.GenerateRequestID(),
-		imgGen:        image.New(util.GetRandomUniqueColors(2), cfg.ImageType),
-		tunnelFactory: &defaultTunnelFactory{},
-		client:        &http.Client{},
+		config:    cfg,
+		router:    router,
+		msgChan:   make(chan types.Message, 100),
+		done:      make(chan struct{}),
+		ready:     make(chan struct{}),
+		requestID: util.GenerateRequestID(),
+		imgGen:    image.New(util.GetRandomUniqueColors(2), cfg.ImageType),
+		client:    &http.Client{},
 	}
 
 	// Apply options
@@ -149,7 +138,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Start tunnel if not provided
 	if s.tunnel == nil {
-		t, err := s.tunnelFactory.New(port)
+		t, err := tunnel.New(port)
 		if err != nil {
 			return NewError(ErrTunnelStart, "启动隧道失败", err)
 		}
@@ -296,6 +285,18 @@ func (s *Server) handleImage(c *gin.Context) {
 
 // SendPostRequest sends a POST request to test the API
 func (s *Server) SendPostRequest(ctx context.Context, url, key, model string, useStream bool) {
+	// Wait for tunnel URL to be ready
+	<-s.tunnel.Ready()
+	// Check if tunnel URL is an error
+	if strings.HasPrefix(s.tunnel.URL(), "Error:") {
+		s.msgChan <- types.Message{
+			Type:    types.MessageTypeError,
+			Content: fmt.Sprintf("隧道创建失败: %s", s.tunnel.URL()),
+		}
+		close(s.done)
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, s.config.Timeout)
 	defer cancel()
 
@@ -303,11 +304,10 @@ func (s *Server) SendPostRequest(ctx context.Context, url, key, model string, us
 	logger.Debug("image path: %s", imageURL)
 
 	// Show the request message with color information first
-	requestMsg := fmt.Sprintf("请求: What is this? (发送一个彩色%dx%d像素的对角条纹%s图片, colors: %s)",
-		s.config.ImageWidth, s.config.ImageHeight,
-		strings.ToUpper(string(s.config.ImageType)),
-		strings.Join(s.imgGen.GetColors(), ", "))
-	requestMsg = fmt.Sprintf("%s, max_tokens: %d", requestMsg, s.config.MaxTokens)
+	requestMsg := fmt.Sprintf("%s (发送颜色为 %s的 %dx%d像素的对角条纹图片，max_tokens: %d)",
+		s.config.Prompt,
+		strings.Join(s.imgGen.GetColors(), ", "),
+		s.config.ImageWidth, s.config.ImageHeight, s.config.MaxTokens)
 
 	response, err := util.ChatRequest(ctx, url, key, model, imageURL, s.config.MaxTokens, useStream)
 	if err != nil {
@@ -331,7 +331,6 @@ func (s *Server) SendPostRequest(ctx context.Context, url, key, model string, us
 		Type:    types.MessageTypeAPI,
 		Content: fmt.Sprintf("请求: %s\n响应: %s", requestMsg, response),
 	}
-
 }
 
 // MessageChan returns the message channel

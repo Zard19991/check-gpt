@@ -26,6 +26,8 @@ type Config struct {
 	ImageHeight  int
 	ImageType    ImageType
 	Stream       bool
+	GitRepo      string
+	Prompt       string
 }
 
 var debug bool
@@ -53,5 +55,7 @@ func New() *Config {
 		ImageHeight:  30,
 		ImageType:    PNG,
 		Stream:       true,
+		GitRepo:      "https://github.com/go-coders/check-trace",
+		Prompt:       "你看到什么?",
 	}
 }

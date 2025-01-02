@@ -91,9 +91,7 @@ func (t *TraceManager) manageState(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case fn := <-t.stateChan:
-			logger.Debug("State before modification: %+v", nodes)
 			fn(&nodes)
-			logger.Debug("State after modification: %+v", nodes)
 		}
 	}
 }
