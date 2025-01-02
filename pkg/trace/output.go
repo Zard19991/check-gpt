@@ -36,5 +36,5 @@ func (w *defaultOutputWriter) WriteError(err string) {
 
 func (w *defaultOutputWriter) WriteResponse(content string) {
 	// color cyan
-	fmt.Printf("%s%s%s\n", util.ColorCyan, content, util.ColorReset)
+	fmt.Printf("\n%s%s%s\n", util.ColorCyan, content, util.ColorReset)
 }

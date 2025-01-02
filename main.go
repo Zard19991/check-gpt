@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/go-coders/check-trace/pkg/api"
 	"github.com/go-coders/check-trace/pkg/config"
@@ -63,7 +64,7 @@ func runDetection(ctx context.Context, srv *server.Server, cfg *config.Config) e
 	fmt.Fprintf(os.Stdout, "\n正在检测中...\n")
 
 	// Create trace manager
-	tracer := trace.New(srv)
+	tracer := trace.New(srv, trace.WithConfig(cfg))
 
 	// Start trace manager
 	tracer.Start(ctx)
@@ -75,6 +76,7 @@ func runDetection(ctx context.Context, srv *server.Server, cfg *config.Config) e
 	case <-ctx.Done():
 		return fmt.Errorf("context cancelled")
 	case <-tracer.Done():
+		time.Sleep(time.Second * 10000)
 		return nil
 	}
 

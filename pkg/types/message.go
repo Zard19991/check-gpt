@@ -22,6 +22,7 @@ const (
 	MessageTypeNode MessageType = iota
 	MessageTypeError
 	MessageTypeAPI
+	MessageTypeRequest
 )
 
 // RequestHeaders represents the headers from a request
@@ -45,4 +46,5 @@ type Node struct {
 	NodeIndex    int
 	RegionName   string
 	Org          string
+	ServerName   string
 }

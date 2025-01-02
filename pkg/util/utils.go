@@ -58,6 +58,7 @@ func ChatRequest(ctx context.Context, url, key, model, imageURL string, maxToken
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", key))
+	req.Header.Set("User-Agent", "Apifox/1.0.0 (https://apifox.com)")
 
 	// Create client with timeout
 	client := &http.Client{

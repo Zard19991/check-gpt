@@ -3,6 +3,7 @@ module github.com/go-coders/check-trace
 go 1.22
 
 require (
+	github.com/dchest/captcha v1.1.0
 	github.com/gin-contrib/cors v1.5.0
 	github.com/gin-gonic/gin v1.9.1
 	github.com/mattn/go-runewidth v0.0.16

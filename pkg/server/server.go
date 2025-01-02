@@ -41,8 +41,9 @@ type Server struct {
 	imgGen     interfaces.ImageGenerator
 	client     *http.Client
 
-	imgCache     []byte    // 图片缓存
-	imgCacheLock sync.Once // 确保图片只生成一次
+	captchaCache     *interfaces.CaptchaResult // 验证码缓存
+	captchaCacheLock sync.RWMutex              // 验证码缓存锁
+
 }
 
 // ServerOption represents a server configuration option
@@ -106,8 +107,8 @@ func New(cfg *config.Config, opts ...ServerOption) *Server {
 		msgChan:   make(chan types.Message, 100),
 		done:      make(chan struct{}),
 		ready:     make(chan struct{}),
-		requestID: util.GenerateRequestID(),
-		imgGen:    image.New(util.GetRandomUniqueColors(2), cfg.ImageType),
+		requestID: util.GenerateRandomString(10),
+		imgGen:    image.New(config.PNG),
 		client:    &http.Client{},
 	}
 
@@ -211,16 +212,20 @@ func (s *Server) setupRoutes() {
 	})
 
 	s.router.(*gin.Engine).Any(s.config.ImagePath, s.handleImage)
-
 }
 
 // handleImage handles image requests
 func (s *Server) handleImage(c *gin.Context) {
-	if c.Query("id") != s.requestID {
-		logger.Debug("Invalid request ID: %s", c.Query("id"))
+	requestID := c.Query("id")
+	logger.Debug("Received image request with ID: %s, expected ID: %s", requestID, s.requestID)
+
+	if requestID != s.requestID {
+		logger.Debug("Invalid request ID: %s", requestID)
 		c.Status(http.StatusNotFound)
 		return
 	}
+
+	// Record the request
 	defer func() {
 		s.msgChan <- types.Message{
 			Type: types.MessageTypeNode,
@@ -233,54 +238,32 @@ func (s *Server) handleImage(c *gin.Context) {
 		}
 	}()
 
-	// Get image type from query parameter or use default
-	imageType := s.config.ImageType
-	if typeParam := c.Query("type"); typeParam != "" {
-		switch typeParam {
-		case "png":
-			imageType = config.PNG
-		case "jpeg", "jpg":
-			imageType = config.JPEG
-		}
-	}
-
 	// debug ip and request method
-	logger.Debug("recieve request from: %s %s, image type: %s", c.ClientIP(), c.Request.Method, imageType)
+	logger.Debug("receive request from: %s %s", c.ClientIP(), c.Request.Method)
 
-	// 懒加载方式生成图片
-	s.imgCacheLock.Do(func() {
-		// Create new generator with requested image type
-		s.imgGen = image.New(util.GetRandomUniqueColors(2), imageType)
-		imgData, err := s.imgGen.GenerateStripes(s.config.ImageWidth, s.config.ImageHeight)
+	// Generate or get cached captcha
+	s.captchaCacheLock.Lock()
+	if s.captchaCache == nil {
+		// Generate random digits for the captcha
+		randomDigits := util.GenerateRandomDigits(4) // Generate 6 random digits
+		result, err := s.imgGen.GenerateCaptcha(s.config.ImageWidth, s.config.ImageHeight, randomDigits)
 		if err != nil {
-			logger.Debug("Failed to generate image: %v", err)
+			logger.Debug("Failed to generate captcha: %v", err)
+			s.captchaCacheLock.Unlock()
+			c.Status(http.StatusInternalServerError)
 			return
 		}
-		s.imgCache = imgData
-	})
-
-	logger.Debug("image size: %.2f KB (%d bytes)", float64(len(s.imgCache))/1024, len(s.imgCache))
-
-	if s.imgCache == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "image generation failed"})
-		return
+		s.captchaCache = result
 	}
+	captcha := s.captchaCache
+	s.captchaCacheLock.Unlock()
 
-	contentType := "image/png"
-	if imageType == config.JPEG {
-		contentType = "image/jpeg"
-	}
+	logger.Debug("generate captcha size: %d", len(captcha.Image))
 
-	c.Header("Content-Type", contentType)
-	c.Header("Content-Length", fmt.Sprintf("%d", len(s.imgCache)))
-
-	if c.Request.Method == "HEAD" {
-		logger.Debug("HEAD request received, actual size: %d", len(s.imgCache))
-		c.Status(http.StatusOK)
-		return
-	}
-
-	c.Data(http.StatusOK, contentType, s.imgCache)
+	// base64Captcha always generates PNG images
+	c.Header("Content-Type", "image/png")
+	c.Header("Content-Length", fmt.Sprintf("%d", len(captcha.Image)))
+	c.Data(http.StatusOK, "image/png", captcha.Image)
 }
 
 // SendPostRequest sends a POST request to test the API
@@ -300,14 +283,39 @@ func (s *Server) SendPostRequest(ctx context.Context, url, key, model string, us
 	ctx, cancel := context.WithTimeout(ctx, s.config.Timeout)
 	defer cancel()
 
-	imageURL := s.TunnelURL() + fmt.Sprintf("%s?id=%s", s.config.ImagePath, s.requestID)
-	logger.Debug("image path: %s", imageURL)
+	// Use the existing request ID
+	logger.Debug("Using existing request ID: %s", s.requestID)
 
-	// Show the request message with color information first
-	requestMsg := fmt.Sprintf("%s (发送颜色为 %s的 %dx%d像素的对角条纹图片，max_tokens: %d)",
+	// Generate captcha if not exists
+	s.captchaCacheLock.Lock()
+	if s.captchaCache == nil {
+		// Generate random digits for the captcha
+		randomDigits := util.GenerateRandomDigits(4) // Generate 6 random digits
+		result, err := s.imgGen.GenerateCaptcha(s.config.ImageWidth, s.config.ImageHeight, randomDigits)
+		if err != nil {
+			s.captchaCacheLock.Unlock()
+			s.msgChan <- types.Message{
+				Type:    types.MessageTypeError,
+				Content: fmt.Sprintf("生成验证码失败: %v", err),
+			}
+			close(s.done)
+			return
+		}
+		s.captchaCache = result
+	}
+	captchaText := s.captchaCache.Text
+	s.captchaCacheLock.Unlock()
+
+	// Log the request ID and URL for debugging
+	logger.Debug("Using request ID: %s", s.requestID)
+	imageURL := s.TunnelURL() + fmt.Sprintf("%s?id=%s", s.config.ImagePath, s.requestID)
+	logger.Debug("Full image URL: %s", imageURL)
+
+	// Show the request message with captcha text
+	requestMsg := fmt.Sprintf("%s (发送验证码图片，验证码: %s，max_tokens: %d)",
 		s.config.Prompt,
-		strings.Join(s.imgGen.GetColors(), ", "),
-		s.config.ImageWidth, s.config.ImageHeight, s.config.MaxTokens)
+		captchaText,
+		s.config.MaxTokens)
 
 	response, err := util.ChatRequest(ctx, url, key, model, imageURL, s.config.MaxTokens, useStream)
 	if err != nil {

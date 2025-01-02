@@ -23,8 +23,14 @@ type Tunnel interface {
 	Ready() <-chan struct{}
 }
 
+// CaptchaResult contains the generated captcha image and its text
+type CaptchaResult struct {
+	Image []byte
+	Text  string
+	ID    string
+}
+
 // ImageGenerator 定义图片生成器接口
 type ImageGenerator interface {
-	GenerateStripes(width, height int) ([]byte, error)
-	GetColors() []string
+	GenerateCaptcha(width, height int, text string) (*CaptchaResult, error)
 }

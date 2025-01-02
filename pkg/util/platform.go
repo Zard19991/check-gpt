@@ -1,8 +1,10 @@
 package util
 
-import "strings"
-
-const platformUnknown = "未知"
+import (
+	"fmt"
+	"net"
+	"strings"
+)
 
 // platformPattern defines a platform and its matching patterns
 type platformPattern struct {
@@ -24,26 +26,48 @@ var platformPatterns = []platformPattern{
 }
 
 // GetPlatformInfo extracts platform information from User-Agent
-func GetPlatformInfo(userAgent string) string {
+func GetPlatformInfo(userAgent string, ip string, cidr []string) string {
+
+	for _, cidr := range cidr {
+		if IsIPInCidr(ip, cidr) {
+			return "OpenAI服务"
+		}
+	}
 	// Return Unknown for empty user agent
 	if userAgent == "" {
-		return platformUnknown
+		return "未知服务"
 	}
 
 	for _, platform := range platformPatterns {
 		for _, pattern := range platform.patterns {
 			if platform.caseSensitive {
 				if strings.Contains(userAgent, pattern) {
-					return platform.name
+					name := platform.name
+					if name == "OpenAI" {
+						name = fmt.Sprintf("可能是%s", name)
+					}
+					return fmt.Sprintf("%s服务", name)
 				}
 			} else {
 				if strings.Contains(strings.ToLower(userAgent), strings.ToLower(pattern)) {
-					return platform.name
+					name := platform.name
+					if name == "OpenAI" {
+						name = fmt.Sprintf("可能是%s", name)
+					}
+					return fmt.Sprintf("%s服务", name)
 				}
 			}
 		}
 	}
 
 	// Return original user agent if no pattern matches
-	return userAgent
+	return fmt.Sprintf("未知服务,UA:%s", userAgent)
+}
+
+func IsIPInCidr(ip string, cidr string) bool {
+	_, ipNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return false
+	}
+	return ipNet.Contains(net.ParseIP(ip))
 }

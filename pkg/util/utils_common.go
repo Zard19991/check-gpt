@@ -96,8 +96,3 @@ func Min(a, b int) int {
 	}
 	return b
 }
-
-// GenerateRequestID generates a random request ID
-func GenerateRequestID() string {
-	return fmt.Sprintf("%x", rand.Int63())
-}

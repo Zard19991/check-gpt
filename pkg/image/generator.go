@@ -3,96 +3,91 @@ package image
 import (
 	"bytes"
 	"fmt"
-	"image"
-	"image/color"
-	"image/jpeg"
-	"image/png"
+	"math/rand"
 
+	"github.com/dchest/captcha"
 	"github.com/go-coders/check-trace/pkg/config"
-	"github.com/go-coders/check-trace/pkg/util"
+	"github.com/go-coders/check-trace/pkg/interfaces"
+	"github.com/go-coders/check-trace/pkg/logger"
 )
+
+const validChars = "0123456789"
 
 // Generator handles image generation
 type Generator struct {
-	colors    []util.ColorInfo
 	imageType config.ImageType
 }
 
+// generateRandomDigits generates random digits of specified length
+func generateRandomDigits(length int) string {
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = validChars[rand.Intn(len(validChars))]
+	}
+	return string(b)
+}
+
 // New creates a new image generator
-func New(colors []util.ColorInfo, imageType config.ImageType) *Generator {
+func New(imageType config.ImageType) *Generator {
 	return &Generator{
-		colors:    colors,
 		imageType: imageType,
 	}
 }
 
-// GenerateStripes generates a striped image with the given colors
-func (g *Generator) GenerateStripes(width, height int) ([]byte, error) {
-	// Use Paletted image for PNG, RGBA for JPEG
-	var img image.Image
-	var palette color.Palette
-
-	if g.imageType == config.PNG {
-		palette = make(color.Palette, len(g.colors))
-		for i, c := range g.colors {
-			palette[i] = c.Color
-		}
-		img = image.NewPaletted(image.Rect(0, 0, width, height), palette)
-	} else {
-		img = image.NewRGBA(image.Rect(0, 0, width, height))
+// GenerateCaptcha generates a captcha image with the provided text
+// If text is empty, it will generate random digits
+func (g *Generator) GenerateCaptcha(width, height int, text string) (*interfaces.CaptchaResult, error) {
+	if width <= 0 || height <= 0 {
+		return nil, fmt.Errorf("invalid dimensions: width and height must be positive")
 	}
 
-	// Calculate stripe width based on image dimensions
-	stripeWidth := width / (len(g.colors) * 2)
-	if stripeWidth < 1 {
-		stripeWidth = 1
-	}
+	var numericText string
 
-	for x := 0; x < width; x++ {
-		for y := 0; y < height; y++ {
-			colorIndex := ((x + y) / stripeWidth) % len(g.colors)
-			if g.imageType == config.PNG {
-				img.(*image.Paletted).Set(x, y, palette[colorIndex])
-			} else {
-				img.(*image.RGBA).Set(x, y, g.colors[colorIndex].Color)
+	if text != "" {
+		logger.Debug("generate captcha text: %s", text)
+		// Convert text to digits (only keep numeric characters)
+		for _, ch := range text {
+			if ch >= '0' && ch <= '9' {
+				numericText += string(ch)
 			}
 		}
+		if numericText == "" {
+			// If no numeric characters found, generate random digits
+			numericText = generateRandomDigits(6)
+		}
+	} else {
+		// Generate random digits
+		numericText = generateRandomDigits(6)
 	}
 
-	buffer := new(bytes.Buffer)
-
-	switch g.imageType {
-	case config.PNG:
-		encoder := &png.Encoder{
-			CompressionLevel: png.BestCompression,
-		}
-		if err := encoder.Encode(buffer, img); err != nil {
-			return nil, err
-		}
-	case config.JPEG:
-		options := jpeg.Options{
-			Quality: 10, // Lower quality for smaller file size
-		}
-		if err := jpeg.Encode(buffer, img, &options); err != nil {
-			return nil, err
-		}
-	default:
-		return nil, fmt.Errorf("unsupported image type: %s", g.imageType)
+	// Convert ASCII digits to numeric values (0-9)
+	digits := make([]byte, len(numericText))
+	for i, ch := range numericText {
+		digits[i] = byte(ch - '0') // Convert ASCII digit to actual number
 	}
 
-	return buffer.Bytes(), nil
+	// Generate a random ID for this captcha
+	id := fmt.Sprintf("%d", rand.Int63())
+
+	// Create the image directly
+	img := captcha.NewImage(id, digits, width, height)
+
+	// Convert image to PNG bytes
+	var buf bytes.Buffer
+	if _, err := img.WriteTo(&buf); err != nil {
+		return nil, fmt.Errorf("failed to generate captcha image: %v", err)
+	}
+
+	logger.Debug("generate captcha size:, text: %s, id: %s, size: %d", numericText, id, len(buf.Bytes()))
+
+	return &interfaces.CaptchaResult{
+		Image: buf.Bytes(),
+		Text:  numericText,
+		ID:    id,
+	}, nil
 }
 
-// GetColors returns the color names used by the generator
-func (g *Generator) GetColors() []string {
-	names := make([]string, len(g.colors))
-	for i, c := range g.colors {
-		names[i] = c.ChineseName
-	}
-	return names
-}
-
-// NewGenerator creates a new image generator with random colors
-func NewGenerator(imageType config.ImageType) *Generator {
-	return New(util.GetRandomUniqueColors(2), imageType)
+// VerifyCaptcha verifies the captcha digits
+func (g *Generator) VerifyCaptcha(id string, digits string) bool {
+	return true // Since we're not using the store anymore, verification is always true
 }
