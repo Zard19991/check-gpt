@@ -6,9 +6,9 @@ import (
 	"math/rand"
 
 	"github.com/dchest/captcha"
-	"github.com/go-coders/check-trace/pkg/config"
-	"github.com/go-coders/check-trace/pkg/interfaces"
-	"github.com/go-coders/check-trace/pkg/logger"
+	"github.com/go-coders/check-gpt/pkg/config"
+	"github.com/go-coders/check-gpt/pkg/interfaces"
+	"github.com/go-coders/check-gpt/pkg/logger"
 )
 
 const validChars = "0123456789"

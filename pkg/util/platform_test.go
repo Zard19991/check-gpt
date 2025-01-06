@@ -19,7 +19,7 @@ func TestGetPlatformInfo(t *testing.T) {
 			userAgent: "unknown",
 			ip:        "1.1.1.1",
 			cidrs:     []string{},
-			want:      "未知服务,UA:unknown",
+			want:      "未知服务,User-Agent:unknown",
 		},
 		{
 			name:      "OpenAI platform",

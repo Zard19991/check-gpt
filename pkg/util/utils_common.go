@@ -6,13 +6,13 @@ import (
 	"image/color"
 	"math/rand"
 	"net"
+	"net/url"
+	"regexp"
+	"strconv"
+	"strings"
 )
 
-// ClearConsole clears the console screen
-func ClearConsole() {
-	fmt.Print("\033[H\033[2J")
-}
-
+// ColorInfo represents a basic color with its name
 // ColorInfo represents a basic color with its name
 type ColorInfo struct {
 	Color       color.RGBA
@@ -95,4 +95,180 @@ func Min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// normalizeURL ensures the URL ends with /v1/chat/completions for OpenAI-compatible APIs
+func NormalizeURL(url string) string {
+
+	if url == "" {
+		return ""
+	}
+	// chekc if http or https
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		url = "https://" + url
+	}
+
+	// Remove trailing slashes and spaces
+	url = strings.TrimRight(url, "/ ")
+
+	// Check for various possible endings and append the missing parts
+	suffix := "/v1/chat/completions"
+	if strings.HasSuffix(url, suffix) {
+		return url
+	}
+
+	if strings.HasSuffix(url, "/v1/chat") {
+		return url + "/completions"
+	}
+
+	if strings.HasSuffix(url, "/v1") {
+		return url + "/chat/completions"
+	}
+
+	if strings.HasSuffix(url, "/chat/completions") {
+		return url[:len(url)-len("/chat/completions")] + suffix
+	}
+
+	if strings.HasSuffix(url, "/chat") {
+		return url[:len(url)-len("/chat")] + suffix
+	}
+
+	if strings.HasSuffix(url, "/completions") {
+		return url[:len(url)-len("/completions")] + suffix
+	}
+
+	// If no matching suffix found, append the full suffix
+	return url + suffix
+}
+
+// AddressType 表示地址类型
+type AddressType int
+
+const (
+	InvalidAddress AddressType = iota
+	IPv4Address
+	IPv6Address
+	DomainAddress
+	LocalhostAddress
+)
+
+// AddressInfo 存储地址解析结果
+type AddressInfo struct {
+	Original    string      // 原始输入
+	Type        AddressType // 地址类型
+	Scheme      string      // 协议 (http/https)
+	Host        string      // 主机部分
+	Port        string      // 端口
+	IsValid     bool        // 是否有效
+	ErrorDetail string      // 错误详情
+}
+
+func IsValidURL(input string) bool {
+	// Handle empty input
+	if strings.TrimSpace(input) == "" {
+		return false
+	}
+
+	// Try parsing as URL if it has a scheme
+	if strings.Contains(input, "://") {
+		u, err := url.Parse(input)
+		if err != nil {
+			return false
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return false
+		}
+		input = u.Host
+	}
+
+	// Split host and port if present
+	host := input
+	var port string
+	if strings.Contains(input, ":") {
+		var err error
+		host, port, err = net.SplitHostPort(input)
+		if err != nil {
+			return false
+		}
+		if !isValidPort(port) {
+			return false
+		}
+	}
+
+	// Check if it's localhost
+	if strings.ToLower(host) == "localhost" {
+		return true
+	}
+
+	// Check if it's an IP address
+	if ip := net.ParseIP(host); ip != nil {
+		// Additional validation for IPv4
+		if ip.To4() != nil {
+			parts := strings.Split(host, ".")
+			for _, part := range parts {
+				num, err := strconv.Atoi(part)
+				if err != nil || num < 0 || num > 255 {
+					return false
+				}
+			}
+		}
+		return true
+	}
+
+	// Check if it's a valid domain
+	return isValidDomain(host)
+}
+
+func isValidPort(port string) bool {
+	if port == "" {
+		return true
+	}
+	num, err := strconv.Atoi(port)
+	return err == nil && num > 0 && num < 65536
+}
+
+func isValidDomain(domain string) bool {
+	if domain == "" {
+		return false
+	}
+
+	// 更宽松的域名正则表达式
+	// 允许:
+	// - 字母、数字开头
+	// - 中间可以包含字母、数字、连字符
+	// - 允许多级域名
+	// - 顶级域名至少2个字符
+	domainRegex := regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$`)
+
+	// 检查总长度
+	if len(domain) > 253 {
+		return false
+	}
+
+	// 检查每个部分的长度
+	parts := strings.Split(domain, ".")
+	for _, part := range parts {
+		if len(part) > 63 {
+			return false
+		}
+	}
+
+	return domainRegex.MatchString(domain)
+}
+
+func (t AddressType) String() string {
+	switch t {
+	case InvalidAddress:
+		return "Invalid"
+	case IPv4Address:
+		return "IPv4"
+	case IPv6Address:
+		return "IPv6"
+	case DomainAddress:
+		return "Domain"
+	case LocalhostAddress:
+		return "Localhost"
+	default:
+		return "Unknown"
+	}
 }

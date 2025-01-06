@@ -10,10 +10,12 @@ type MessageSender interface {
 
 // Message represents a trace message
 type Message struct {
-	Type    MessageType
-	Content string
-	Headers *RequestHeaders
-	Error   error
+	Type     MessageType
+	Content  string
+	Headers  *RequestHeaders
+	Error    error
+	Request  string
+	Response string
 }
 
 type MessageType int

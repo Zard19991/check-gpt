@@ -1,7 +1,7 @@
 package ipinfo
 
 import (
-	"github.com/go-coders/check-trace/pkg/util"
+	"github.com/go-coders/check-gpt/pkg/util"
 )
 
 // Provider defines the interface for getting IP information

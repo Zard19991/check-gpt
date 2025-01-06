@@ -12,21 +12,14 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/go-coders/check-trace/pkg/config"
-	"github.com/go-coders/check-trace/pkg/image"
-	"github.com/go-coders/check-trace/pkg/interfaces"
-	"github.com/go-coders/check-trace/pkg/logger"
-	"github.com/go-coders/check-trace/pkg/tunnel"
-	"github.com/go-coders/check-trace/pkg/types"
-	"github.com/go-coders/check-trace/pkg/util"
+	"github.com/go-coders/check-gpt/pkg/config"
+	"github.com/go-coders/check-gpt/pkg/image"
+	"github.com/go-coders/check-gpt/pkg/interfaces"
+	"github.com/go-coders/check-gpt/pkg/logger"
+	"github.com/go-coders/check-gpt/pkg/tunnel"
+	"github.com/go-coders/check-gpt/pkg/types"
+	"github.com/go-coders/check-gpt/pkg/util"
 )
-
-// defaultTunnelFactory is the default implementation of TunnelFactory
-type defaultTunnelFactory struct{}
-
-func (f *defaultTunnelFactory) New(port int) (interfaces.Tunnel, error) {
-	return tunnel.New(port)
-}
 
 // Server represents the main application server
 type Server struct {
@@ -39,43 +32,15 @@ type Server struct {
 	ready      chan struct{}
 	requestID  string
 	imgGen     interfaces.ImageGenerator
-	client     *http.Client
 
 	captchaCache     *interfaces.CaptchaResult // 验证码缓存
 	captchaCacheLock sync.RWMutex              // 验证码缓存锁
 
+	client *util.Client
 }
 
 // ServerOption represents a server configuration option
 type ServerOption func(*Server)
-
-// WithRouter sets a custom router
-func WithRouter(router interfaces.Router) ServerOption {
-	return func(s *Server) {
-		s.router = router
-	}
-}
-
-// WithHTTPServer sets a custom HTTP server
-func WithHTTPServer(server interfaces.HTTPServer) ServerOption {
-	return func(s *Server) {
-		s.httpServer = server
-	}
-}
-
-// WithTunnel sets a custom tunnel
-func WithTunnel(t interfaces.Tunnel) ServerOption {
-	return func(s *Server) {
-		s.tunnel = t
-	}
-}
-
-// WithImageGenerator sets a custom image generator
-func WithImageGenerator(ig interfaces.ImageGenerator) ServerOption {
-	return func(s *Server) {
-		s.imgGen = ig
-	}
-}
 
 // New creates a new server instance
 func New(cfg *config.Config, opts ...ServerOption) *Server {
@@ -108,8 +73,8 @@ func New(cfg *config.Config, opts ...ServerOption) *Server {
 		done:      make(chan struct{}),
 		ready:     make(chan struct{}),
 		requestID: util.GenerateRandomString(10),
-		imgGen:    image.New(config.PNG),
-		client:    &http.Client{},
+		imgGen:    image.New("png"),
+		client:    util.NewClient(cfg.MaxTokens, cfg.Stream, cfg.Timeout),
 	}
 
 	// Apply options
@@ -268,7 +233,6 @@ func (s *Server) handleImage(c *gin.Context) {
 
 // SendPostRequest sends a POST request to test the API
 func (s *Server) SendPostRequest(ctx context.Context, url, key, model string, useStream bool) {
-	// Wait for tunnel URL to be ready
 	<-s.tunnel.Ready()
 	// Check if tunnel URL is an error
 	if strings.HasPrefix(s.tunnel.URL(), "Error:") {
@@ -283,14 +247,11 @@ func (s *Server) SendPostRequest(ctx context.Context, url, key, model string, us
 	ctx, cancel := context.WithTimeout(ctx, s.config.Timeout)
 	defer cancel()
 
-	// Use the existing request ID
-	logger.Debug("Using existing request ID: %s", s.requestID)
-
 	// Generate captcha if not exists
 	s.captchaCacheLock.Lock()
 	if s.captchaCache == nil {
 		// Generate random digits for the captcha
-		randomDigits := util.GenerateRandomDigits(4) // Generate 6 random digits
+		randomDigits := util.GenerateRandomDigits(4)
 		result, err := s.imgGen.GenerateCaptcha(s.config.ImageWidth, s.config.ImageHeight, randomDigits)
 		if err != nil {
 			s.captchaCacheLock.Unlock()
@@ -308,18 +269,20 @@ func (s *Server) SendPostRequest(ctx context.Context, url, key, model string, us
 
 	// Log the request ID and URL for debugging
 	logger.Debug("Using request ID: %s", s.requestID)
-	imageURL := s.TunnelURL() + fmt.Sprintf("%s?id=%s", s.config.ImagePath, s.requestID)
+	imageURL := s.GetTunnelImageUrl()
 	logger.Debug("Full image URL: %s", imageURL)
 
 	// Show the request message with captcha text
-	requestMsg := fmt.Sprintf("%s (发送验证码图片，验证码: %s，max_tokens: %d)",
+	requestMsg := fmt.Sprintf("%s (发送验证码图片，验证码: %s)",
 		s.config.Prompt,
 		captchaText,
-		s.config.MaxTokens)
+	)
 
-	response, err := util.ChatRequest(ctx, url, key, model, imageURL, s.config.MaxTokens, useStream)
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
+	response := s.client.ChatRequest(ctx, s.config.Prompt, url, imageURL, key, model)
+
+	logger.Debug("response: %+v", response)
+	if response.Error != nil {
+		if errors.Is(response.Error, context.DeadlineExceeded) {
 			s.msgChan <- types.Message{
 				Type:    types.MessageTypeError,
 				Content: fmt.Sprintf("API请求超时,未能获取到响应, 超过%s", s.config.Timeout),
@@ -327,17 +290,18 @@ func (s *Server) SendPostRequest(ctx context.Context, url, key, model string, us
 		} else {
 			s.msgChan <- types.Message{
 				Type:    types.MessageTypeError,
-				Content: fmt.Sprintf("API请求失败: %v", err),
+				Request: requestMsg,
+				Content: fmt.Sprintf("API请求失败: %v", response.Error),
 			}
 			close(s.done)
 			return
 		}
 	}
 
-	// 发送响应
 	s.msgChan <- types.Message{
-		Type:    types.MessageTypeAPI,
-		Content: fmt.Sprintf("请求: %s\n响应: %s", requestMsg, response),
+		Type:     types.MessageTypeAPI,
+		Request:  requestMsg,
+		Response: response.Response,
 	}
 }
 
@@ -349,4 +313,10 @@ func (s *Server) MessageChan() <-chan types.Message {
 // Done returns the done channel
 func (s *Server) Done() <-chan struct{} {
 	return s.done
+}
+
+// GetTunnelURL returns the tunnel URL
+func (s *Server) GetTunnelImageUrl() string {
+	imageURL := s.TunnelURL() + fmt.Sprintf("%s?id=%s", s.config.ImagePath, s.requestID)
+	return imageURL
 }

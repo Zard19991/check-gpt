@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # 版本和仓库信息
-REPO="go-coders/check-trace"
-DEFAULT_VERSION="v0.0.5"
+REPO="go-coders/check-gpt"
+DEFAULT_VERSION="v0.1.7"
 
 # 设置颜色
 if [ -t 1 ]; then
@@ -88,9 +88,9 @@ check_and_install() {
     get_system_info
     
     if [ "$OS" = "windows" ]; then
-        BINARY_NAME="check-trace.exe"
+        BINARY_NAME="check-gpt.exe"
     else
-        BINARY_NAME="check-trace"
+        BINARY_NAME="check-gpt"
     fi
 
     # 检查常见安装位置
@@ -121,7 +121,7 @@ check_and_install() {
         
         # 标准化版本号格式（确保都有 v 前缀）
         if [[ ! "$CURRENT_VERSION" =~ ^v ]]; then
-            CURRENT_VERSION="v${CURRENT_VERSION#check-trace }"
+            CURRENT_VERSION="v${CURRENT_VERSION#check-gpt }"
         fi
         
         # 比较版本号（去除v前缀）
@@ -197,7 +197,7 @@ get_install_dir() {
 
 # 安装工具
 install_tool() {
-    print_message "开始安装 GPT 中转链路检测..."
+    print_message "开始安装 check-gpt 工具..."
     
     # 获取系统信息
     get_system_info
@@ -210,11 +210,11 @@ install_tool() {
     
     # 构建下载 URL 和文件名
     if [ "$OS" = "windows" ]; then
-        ARCHIVE_NAME="check-trace_${VERSION_NUM}_${OS}_${ARCH}.zip"
-        BINARY_NAME="check-trace.exe"
+        ARCHIVE_NAME="check-gpt_${VERSION_NUM}_${OS}_${ARCH}.zip"
+        BINARY_NAME="check-gpt.exe"
     else
-        ARCHIVE_NAME="check-trace_${VERSION_NUM}_${OS}_${ARCH}.tar.gz"
-        BINARY_NAME="check-trace"
+        ARCHIVE_NAME="check-gpt_${VERSION_NUM}_${OS}_${ARCH}.tar.gz"
+        BINARY_NAME="check-gpt"
     fi
     DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE_NAME}"
     
@@ -284,7 +284,7 @@ install_tool() {
 
 # 主流程
 main() {
-    print_message "=== 安装 GPT中转链路检测 ==="
+    print_message "=== 安装 check-gpt 工具 ==="
     
     # 检查已安装版本并处理安装/升级
     check_and_install || exit 1
@@ -292,9 +292,9 @@ main() {
     print_message "安装完成！使用以下命令启动程序："
     # 检查是否在 PATH 中
     if [ "$INSTALL_DIR" = "/usr/local/bin" ] || [[ ":$PATH:" == *":$INSTALL_DIR:"* ]]; then
-        print_message "check-trace"
+        print_message "check-gpt"
     else
-        print_message "$INSTALL_DIR/check-trace"
+        print_message "$INSTALL_DIR/check-gpt"
     fi
 }
 

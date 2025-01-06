@@ -61,7 +61,7 @@ func GetPlatformInfo(userAgent string, ip string, cidr []string) string {
 	}
 
 	// Return original user agent if no pattern matches
-	return fmt.Sprintf("未知服务,UA:%s", userAgent)
+	return fmt.Sprintf("未知服务,User-Agent:%s", userAgent)
 }
 
 func IsIPInCidr(ip string, cidr string) bool {

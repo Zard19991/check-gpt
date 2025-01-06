@@ -7,7 +7,7 @@ import (
 	"image/png"
 	"testing"
 
-	"github.com/go-coders/check-trace/pkg/config"
+	"github.com/go-coders/check-gpt/pkg/config"
 	"github.com/stretchr/testify/assert"
 )
 

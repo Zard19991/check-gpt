@@ -1,16 +1,20 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
+	"time"
 
-	"github.com/go-coders/check-trace/pkg/api"
-	"github.com/go-coders/check-trace/pkg/config"
-	"github.com/go-coders/check-trace/pkg/logger"
-	"github.com/go-coders/check-trace/pkg/server"
-	"github.com/go-coders/check-trace/pkg/trace"
-	"github.com/go-coders/check-trace/pkg/util"
+	"github.com/go-coders/check-gpt/pkg/apiconfig"
+	"github.com/go-coders/check-gpt/pkg/apitest"
+	"github.com/go-coders/check-gpt/pkg/config"
+	"github.com/go-coders/check-gpt/pkg/logger"
+	"github.com/go-coders/check-gpt/pkg/models"
+	"github.com/go-coders/check-gpt/pkg/server"
+	"github.com/go-coders/check-gpt/pkg/trace"
+	"github.com/go-coders/check-gpt/pkg/util"
 )
 
 // Version will be set by GoReleaser
@@ -36,31 +40,77 @@ func startServer(ctx context.Context, srv *server.Server) error {
 	}
 }
 
-func runDetection(ctx context.Context, srv *server.Server, cfg *config.Config) error {
-
-	var apiCfg *api.Config
-	var err error
-
-	fmt.Fprintf(os.Stdout, "\n=== GPT 中转链路检测 ===\ngit repo: %s\n\n", cfg.GitRepo)
-
-	// Get API configuration from user input
-	apiCfg, err = api.GetConfig(os.Stdin, cfg.DefaultModel)
-	if err != nil {
-		fmt.Printf("错误: %v\n", err)
-		srv.Shutdown()
-		os.Exit(1)
-	}
+func runApiTest(item util.MenuItem, cfg *config.Config) error {
 
 	util.ClearConsole()
-	fmt.Fprintf(os.Stdout, "\n=== GPT 中转链路检测 ===\ngit repo: %s\n\n", cfg.GitRepo)
-	fmt.Fprintf(os.Stdout, "API URL: %s\n", apiCfg.URL)
-	if len(apiCfg.Key) > 16 {
-		fmt.Fprintf(os.Stdout, "API Key: %s...%s\n", apiCfg.Key[:8], apiCfg.Key[len(apiCfg.Key)-8:])
-	} else {
-		fmt.Fprintf(os.Stdout, "API Key: %s\n", apiCfg.Key)
+	configReader := apiconfig.NewConfigReader(os.Stdin, os.Stdout)
+	configReader.Printer.PrintTitle(item.Label, item.Emoji)
+
+	apiCfg, err := configReader.ReadValidTestConfig()
+	if err != nil {
+		return fmt.Errorf("错误: %v", err)
 	}
-	fmt.Fprintf(os.Stdout, "检测的模型: %s\n", apiCfg.Model)
-	fmt.Fprintf(os.Stdout, "\n正在检测中...\n")
+
+	var channels []*models.Channel
+	for i, key := range apiCfg.Keys {
+		channel := &models.Channel{
+			Type:      apiCfg.Type,
+			Key:       key,
+			TestModel: apiCfg.ValidTestModel,
+			URL:       apiCfg.URL,
+		}
+		channels = append(channels, channel)
+		logger.Debug("Created channel #%d with key: %s", i+1, util.MaskKey(key, 8, 8))
+	}
+
+	//  configs
+	util.ClearConsole()
+	configReader.ShowConfig(apiCfg)
+	// testing
+	configReader.Printer.PrintTesting()
+
+	ct := apitest.NewApilTest(cfg.MaxConcurrency)
+	results := ct.TestAllApis(channels)
+
+	ct.PrintResults(results)
+
+	configReader.Printer.PrintSuccess("测试完毕")
+	printTime := time.Now()
+
+	configReader.Printer.Printf("\n%s按回车键继续...%s", util.ColorGray, util.ColorReset)
+
+	for {
+		bufio.NewReader(os.Stdin).ReadString('\n')
+		if time.Since(printTime) < 10*time.Millisecond {
+			continue
+		}
+		break
+	}
+
+	return nil
+}
+
+func runDetection(ctx context.Context, srv *server.Server, cfg *config.Config, item util.MenuItem) error {
+	var apiCfg *apiconfig.Config
+	var err error
+	configReader := apiconfig.NewConfigReader(os.Stdin, os.Stdout)
+	util.ClearConsole()
+	configReader.Printer.PrintTitle(item.Label, item.Emoji)
+
+	// Get API configuration from user input
+	apiCfg, err = apiconfig.GetLinkConfig(os.Stdin)
+	if err != nil {
+		return fmt.Errorf("错误: %v", err)
+	}
+	// clearn the console
+	util.ClearConsole()
+	// show the config
+
+	apiCfg.ImageURL = srv.GetTunnelImageUrl()
+
+	configReader.ShowConfig(apiCfg)
+
+	configReader.Printer.PrintTesting()
 
 	// Create trace manager
 	tracer := trace.New(srv, trace.WithConfig(cfg))
@@ -68,50 +118,94 @@ func runDetection(ctx context.Context, srv *server.Server, cfg *config.Config) e
 	// Start trace manager
 	tracer.Start(ctx)
 
-	// Start API request in background
-	go srv.SendPostRequest(ctx, apiCfg.URL, apiCfg.Key, apiCfg.Model, cfg.Stream)
-
-	select {
-	case <-ctx.Done():
-		return fmt.Errorf("context cancelled")
-	case <-tracer.Done():
-		return nil
+	// Start API request in background using first key
+	if len(apiCfg.Keys) > 0 {
+		go srv.SendPostRequest(ctx, apiCfg.URL, apiCfg.Keys[0], apiCfg.LinkTestModel, cfg.Stream)
+	} else {
+		return fmt.Errorf(config.ErrorNoAPIKey)
 	}
 
+	logger.Debug("Waiting for trace completion or context cancellation")
+	select {
+	case <-ctx.Done():
+		logger.Debug("Context cancelled in runDetection")
+		return fmt.Errorf("context cancelled")
+	case <-tracer.Done():
+		configReader.Printer.PrintSuccess("测试完成")
+		finalShowTime := time.Now()
+		configReader.Printer.Printf("\n%s按回车键继续...%s", util.ColorGray, util.ColorReset)
+
+		for {
+			bufio.NewReader(os.Stdin).ReadString('\n')
+			if time.Since(finalShowTime) < 10*time.Millisecond {
+				logger.Debug("user pressed enter")
+				continue
+			}
+			break
+		}
+		logger.Debug("User pressed enter, returning to main menu")
+		return nil
+	}
 }
 
 func main() {
-
 	cfg := config.New()
+	printer := util.NewPrinter(os.Stdout)
 
-	// 如果配置或命令行参数启用了调试模式，就启用调试日志
 	if cfg.Debug {
 		logger.Init(true)
 	}
 
 	// Show version if requested
 	if cfg.Version {
-		fmt.Printf("check-trace %s\n", Version)
+		printer.Printf("check-gpt %s\n", Version)
 		os.Exit(0)
 	}
 
-	// Create server
-	srv := server.New(cfg)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	for {
+		util.ClearConsole()
+		// 显示主菜单
+		choice, err := util.ShowMainMenu(os.Stdin, os.Stdout)
+		if err != nil {
+			printer.PrintError(fmt.Sprintf("错误: %v", err))
+			continue
+		}
 
-	// Start server
-	if err := startServer(ctx, srv); err != nil {
-		fmt.Printf("错误: %v\n", err)
-		os.Exit(1)
+		switch choice.ID {
+		case 1: // Model Test
+			if err := runApiTest(choice, cfg); err != nil {
+				printer.PrintError(fmt.Sprintf("错误: %v", err))
+			}
+		case 2: // Link Detection
+			ctx, cancel := context.WithCancel(context.Background())
+			srv := server.New(cfg)
+
+			if err := startServer(ctx, srv); err != nil {
+				printer.PrintError(fmt.Sprintf("错误: %v", err))
+				cancel()
+				srv.Shutdown()
+				printer.Printf("\n%s按回车键继续...%s", util.ColorGray, util.ColorReset)
+				bufio.NewReader(os.Stdin).ReadString('\n')
+				continue
+			}
+
+			// Run detection
+			if err := runDetection(ctx, srv, cfg, choice); err != nil {
+				printer.PrintError(fmt.Sprintf("错误: %v", err))
+				srv.Shutdown()
+				cancel()
+				printer.Printf("\n%s按回车键继续...%s", util.ColorGray, util.ColorReset)
+				bufio.NewReader(os.Stdin).ReadString('\n')
+				continue
+			}
+
+			logger.Debug("Link detection completed successfully")
+			srv.Shutdown()
+			cancel()
+
+		case 3: // Exit
+			printer.Printf("\n%s 再见！\n", util.EmojiWave)
+			os.Exit(0)
+		}
 	}
-
-	// Run detection
-	if err := runDetection(ctx, srv, cfg); err != nil {
-		fmt.Printf("错误: %v\n", err)
-		srv.Shutdown()
-		os.Exit(1)
-	}
-
-	srv.Shutdown()
 }
