@@ -6,8 +6,8 @@ import (
 	"math/rand"
 
 	"github.com/dchest/captcha"
+	"github.com/go-coders/check-gpt/internal/interfaces"
 	"github.com/go-coders/check-gpt/pkg/config"
-	"github.com/go-coders/check-gpt/pkg/interfaces"
 	"github.com/go-coders/check-gpt/pkg/logger"
 )
 

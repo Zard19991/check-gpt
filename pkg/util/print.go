@@ -240,3 +240,13 @@ func (p *Printer) PrintModelMenu(title string, models []string, defaultModels []
 	p.Printf("\n%s[✓] %s为默认模型%s\n", ColorGreen, ColorGray, ColorReset)
 	p.Printf("\n%s请选择: %s", ColorBold, ColorReset)
 }
+
+// PrintResults prints the test results
+func (p *Printer) PrintResults(results interface{}) {
+	if results == nil {
+		p.PrintSuccess("测试完成")
+		return
+	}
+	p.PrintTitle("测试结果", EmojiDone)
+	p.Printf("%+v\n", results)
+}

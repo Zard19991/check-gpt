@@ -7,19 +7,17 @@ import (
 )
 
 var (
-	debugMode   bool
 	debugLogger *log.Logger
+	isDebug     bool
 )
 
-// Init initializes the logger with debug mode
 func Init(debug bool) {
-	debugMode = debug
-	debugLogger = log.New(os.Stdout, "[DEBUG] ", log.Ldate|log.Ltime|log.Lshortfile)
+	debugLogger = log.New(os.Stdout, "DEBUG: ", log.Ldate|log.Ltime|log.Lshortfile)
+	isDebug = debug
 }
 
-// Debug prints debug messages if debug mode is enabled
 func Debug(format string, v ...interface{}) {
-	if debugMode {
+	if isDebug && debugLogger != nil {
 		debugLogger.Output(2, fmt.Sprintf(format, v...))
 	}
 }

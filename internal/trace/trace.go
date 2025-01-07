@@ -7,10 +7,11 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/go-coders/check-gpt/internal/interfaces"
+	"github.com/go-coders/check-gpt/internal/ipinfo"
+	"github.com/go-coders/check-gpt/internal/types"
 	"github.com/go-coders/check-gpt/pkg/config"
-	"github.com/go-coders/check-gpt/pkg/ipinfo"
 	"github.com/go-coders/check-gpt/pkg/logger"
-	"github.com/go-coders/check-gpt/pkg/types"
 	"github.com/go-coders/check-gpt/pkg/util"
 	"github.com/mattn/go-runewidth"
 )
@@ -41,7 +42,7 @@ const (
 type Manager struct {
 	mu         sync.RWMutex
 	nodes      []types.Node
-	sender     types.MessageSender
+	sender     interfaces.MessageSender
 	done       chan struct{}
 	seen       map[string]bool
 	ipProvider ipinfo.Provider
@@ -50,7 +51,7 @@ type Manager struct {
 }
 
 // New creates a new TraceManager with options
-func New(sender types.MessageSender, opts ...TraceManagerOption) *Manager {
+func New(sender interfaces.MessageSender, opts ...TraceManagerOption) *Manager {
 	t := &Manager{
 		sender:     sender,
 		done:       make(chan struct{}),

@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-coders/check-gpt/internal/types"
 	"github.com/go-coders/check-gpt/pkg/config"
 	"github.com/go-coders/check-gpt/pkg/logger"
-	"github.com/go-coders/check-gpt/pkg/models"
 	"github.com/go-coders/check-gpt/pkg/util"
 )
 
@@ -20,7 +20,7 @@ type Config struct {
 	Keys           []string
 	LinkTestModel  string
 	ValidTestModel []string
-	Type           models.ChannelType
+	Type           types.ChannelType
 	URL            string
 	ImageURL       string
 }
@@ -125,10 +125,10 @@ reinputUrl:
 }
 
 // readModel reads the model name with a new reader
-func (r *ConfigReader) readModel(input io.Reader, defaultModels []string, channelType models.ChannelType) ([]string, error) {
+func (r *ConfigReader) readModel(input io.Reader, defaultModels []string, channelType types.ChannelType) ([]string, error) {
 	// Get the appropriate model list based on channel type
 	var modelList []string
-	if channelType == models.ChannelTypeGemini {
+	if channelType == types.ChannelTypeGemini {
 		modelList = config.CommonGeminiModels
 	} else {
 		modelList = config.CommonOpenAIModels
@@ -200,7 +200,7 @@ start:
 
 // ReadConfig reads API configuration from user input
 func (r *ConfigReader) ReadValidTestConfig() (*Config, error) {
-	var channelType = models.ChannelTypeOpenAI
+	var channelType = types.ChannelTypeOpenAI
 	var testUrl string
 
 	bufReader := bufio.NewReader(r.input)
@@ -212,11 +212,11 @@ func (r *ConfigReader) ReadValidTestConfig() (*Config, error) {
 
 	for _, key := range keys {
 		if isGeminiKey(key) {
-			channelType = models.ChannelTypeGemini
+			channelType = types.ChannelTypeGemini
 		}
 	}
 
-	if channelType == models.ChannelTypeOpenAI {
+	if channelType == types.ChannelTypeOpenAI {
 		url, err := r.readURL(bufReader)
 		if err != nil {
 			return nil, err
@@ -226,7 +226,7 @@ func (r *ConfigReader) ReadValidTestConfig() (*Config, error) {
 
 	// Set default models based on key type
 	var defaultModels []string
-	if channelType == models.ChannelTypeGemini {
+	if channelType == types.ChannelTypeGemini {
 		defaultModels = config.ApiTestModelGeminiDefaults
 	} else {
 		defaultModels = config.ApiTestModelGptDefaults
@@ -327,7 +327,7 @@ reinputModel:
 	cfg := &Config{
 		Keys:          []string{key},
 		LinkTestModel: model,
-		Type:          models.ChannelTypeOpenAI,
+		Type:          types.ChannelTypeOpenAI,
 		URL:           url,
 	}
 
