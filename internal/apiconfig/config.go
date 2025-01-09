@@ -470,7 +470,7 @@ func (r *ConfigReader) PrintModelMenu(title string, models []string, modelGroup 
 		}
 	}
 
-	prompt := "请选择AI模型 (输入序号或自定义模型名称，支持多选):"
+	prompt := "请选择AI模型 (输入序号或自定义模型名称，支持多选)"
 	subPrompt := "提示：多个选择可用空格或逗号分隔，如: 1,2 或 deepseek-chat,gpt-4-32k"
 
 	r.Printer.Printf("\n%s%s%s", util.ColorLightBlue, prompt, util.ColorReset)

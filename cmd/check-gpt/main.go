@@ -16,10 +16,6 @@ import (
 	"github.com/go-coders/check-gpt/pkg/util"
 )
 
-// 1111
-// Version will be set by GoReleaser
-var Version = "dev"
-
 func startServer(ctx context.Context, srv *server.Server) error {
 	util.ClearConsole()
 
@@ -173,7 +169,7 @@ func main() {
 
 	// Show version if requested
 	if cfg.Version {
-		printer.Printf("check-gpt %s\n", Version)
+		printer.Printf("check-gpt %s\n", apiconfig.Version)
 		os.Exit(0)
 	}
 
