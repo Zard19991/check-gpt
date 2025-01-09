@@ -2,6 +2,7 @@ project_name: check-gpt
 
 builds:
   - binary: check-gpt
+    main: ./cmd/check-gpt
     env:
       - CGO_ENABLED=0
     goos:

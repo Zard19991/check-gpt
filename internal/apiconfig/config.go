@@ -2,9 +2,12 @@ package apiconfig
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +17,13 @@ import (
 	"github.com/go-coders/check-gpt/pkg/logger"
 	"github.com/go-coders/check-gpt/pkg/util"
 )
+
+// Version information
+var Version = "dev"
+
+type GithubRelease struct {
+	TagName string `json:"tag_name"`
+}
 
 // Config represents API configuration
 type Config struct {
@@ -44,11 +54,6 @@ func NewConfigReader(input io.Reader, output io.Writer) *ConfigReader {
 		Printer:    util.NewPrinter(output),
 		lastReadAt: time.Time{},
 	}
-}
-
-// isGeminiKey checks if the key is a Google Gemini API key
-func isGeminiKey(key string) bool {
-	return strings.HasPrefix(key, "AI")
 }
 
 // readKeys reads API keys from input with proper cancellation support
@@ -124,17 +129,23 @@ reinputUrl:
 	return url, nil
 }
 
-// readModel reads the model name with a new reader
-func (r *ConfigReader) readModel(input io.Reader, defaultModels []string, channelType types.ChannelType) ([]string, error) {
-	// Get the appropriate model list based on channel type
-	var modelList []string
-	if channelType == types.ChannelTypeGemini {
-		modelList = config.CommonGeminiModels
-	} else {
-		modelList = config.CommonOpenAIModels
+// deduplicateModels removes duplicate models while maintaining order
+func deduplicateModels(models []string) []string {
+	seen := make(map[string]bool)
+	result := make([]string, 0, len(models))
+	for _, model := range models {
+		if !seen[model] {
+			seen[model] = true
+			result = append(result, model)
+		}
 	}
+	return result
+}
 
-	r.Printer.PrintModelMenu(config.InputPromptModelTitle, modelList, defaultModels)
+// readModel reads the model name with a new reader
+func (r *ConfigReader) readModel(input io.Reader, modelList []string, modelGroup []config.ModelGroup) ([]string, error) {
+
+	r.PrintModelMenu(config.InputPromptModelTitle, modelList, modelGroup)
 
 	reader := bufio.NewReader(input)
 
@@ -143,21 +154,35 @@ start:
 	if err != nil && err != io.EOF {
 		return nil, fmt.Errorf(config.ErrorReadModelFailed, err)
 	}
+
+	// in case paste mutiple lines in read key
 	if time.Since(r.lastReadAt) < 50*time.Millisecond {
 		goto start
 	}
-
 	r.lastReadAt = time.Now()
 
+	var defaualtSelect = "1"
 	choice := strings.TrimSpace(line)
 	if choice == "" {
-		return defaultModels, nil
+		// select 1 model
+		choice = defaualtSelect
 	}
 
-	// Split input by spaces and commas
+	// Split input by multiple separators including Chinese punctuation
+	// (spaces, commas, tabs, semicolons, Chinese comma, Chinese enumeration comma)
 	choices := strings.FieldsFunc(choice, func(r rune) bool {
-		return r == ' ' || r == ','
+		return r == ' ' || r == ',' || r == '\t' || r == ';' ||
+			r == '，' || r == '、' || r == '　' // Chinese separators
 	})
+	// Filter out empty strings
+	var filteredChoices []string
+	for _, c := range choices {
+		if c != "" {
+			filteredChoices = append(filteredChoices, c)
+		}
+	}
+	choices = filteredChoices
+
 	var selectedModels []string
 
 	// Process each choice
@@ -169,8 +194,14 @@ start:
 
 		// Try to parse as number first
 		if num, err := strconv.Atoi(c); err == nil {
-			if num > 0 && num <= len(modelList) {
-				selectedModels = append(selectedModels, modelList[num-1])
+			if num > 0 && num <= len(config.ModelGroups) {
+				// If it's a group number, add all models from that group
+				selectedModels = append(selectedModels, config.ModelGroups[num-1].Models...)
+				continue
+			}
+			if num > len(config.ModelGroups) && num <= len(config.ModelGroups)+len(modelList) {
+				// If it's a model number, add the corresponding model
+				selectedModels = append(selectedModels, modelList[num-len(config.ModelGroups)-1])
 				continue
 			}
 			r.Printer.Printf("%s%s 忽略无效的数字选择: %s%s\n",
@@ -181,21 +212,8 @@ start:
 		selectedModels = append(selectedModels, c)
 	}
 
-	if len(selectedModels) == 0 {
-		return defaultModels, nil
-	}
-
 	// Remove duplicates while maintaining order
-	seen := make(map[string]bool)
-	uniqueModels := make([]string, 0, len(selectedModels))
-	for _, model := range selectedModels {
-		if !seen[model] {
-			seen[model] = true
-			uniqueModels = append(uniqueModels, model)
-		}
-	}
-
-	return uniqueModels, nil
+	return deduplicateModels(selectedModels), nil
 }
 
 // ReadConfig reads API configuration from user input
@@ -210,12 +228,6 @@ func (r *ConfigReader) ReadValidTestConfig() (*Config, error) {
 		return nil, err
 	}
 
-	for _, key := range keys {
-		if isGeminiKey(key) {
-			channelType = types.ChannelTypeGemini
-		}
-	}
-
 	if channelType == types.ChannelTypeOpenAI {
 		url, err := r.readURL(bufReader)
 		if err != nil {
@@ -225,14 +237,7 @@ func (r *ConfigReader) ReadValidTestConfig() (*Config, error) {
 	}
 
 	// Set default models based on key type
-	var defaultModels []string
-	if channelType == types.ChannelTypeGemini {
-		defaultModels = config.ApiTestModelGeminiDefaults
-	} else {
-		defaultModels = config.ApiTestModelGptDefaults
-	}
-
-	model, err := r.readModel(r.input, defaultModels, channelType)
+	model, err := r.readModel(r.input, config.CommonOpenAIModels, config.ModelGroups)
 	if err != nil {
 		return nil, err
 	}
@@ -262,7 +267,6 @@ func (r *ConfigReader) ReadLinkConfig() (*Config, error) {
 		}
 		key = strings.TrimSpace(line)
 		if key == "" {
-			r.Printer.Printf("API Key cannot be empty, please try again\n")
 			continue
 		}
 		// split the line by spaces
@@ -362,4 +366,116 @@ func (r *ConfigReader) ShowConfig(cfg *Config) {
 	if cfg.ImageURL != "" {
 		r.Printer.Printf(config.ConfigImageURL+"\n", cfg.ImageURL)
 	}
+}
+
+// ErrAlreadyLatest indicates the current version is already the latest
+var ErrAlreadyLatest = fmt.Errorf("already latest version")
+
+// CheckUpdate checks for updates and prompts the user to update if a new version is available
+func (r *ConfigReader) CheckUpdate() (bool, error) {
+	r.Printer.PrintTitle("检查更新", util.EmojiGear)
+	r.Printer.Printf("%s\n", config.CheckingForUpdate)
+
+	// Get latest version from GitHub
+	resp, err := http.Get(config.UpdateCheckURL)
+	if err != nil {
+		return false, fmt.Errorf("failed to check for updates: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var release GithubRelease
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return false, fmt.Errorf("failed to parse release info: %v", err)
+	}
+
+	// Print version information with color based on version comparison
+	if Version == release.TagName || Version == "dev" {
+		// Same version - use gray color for both
+		r.Printer.Printf("\n%s%s%s\n", util.ColorGray, fmt.Sprintf(config.CurrentVersion, Version), util.ColorReset)
+		r.Printer.Printf("%s%s%s\n\n", util.ColorGray, fmt.Sprintf(config.LatestVersion, release.TagName), util.ColorReset)
+		r.Printer.PrintSuccess("当前已是最新版本")
+		return false, nil
+	}
+
+	// Different versions - current version in yellow, latest in green
+	r.Printer.Printf("\n%s%s%s\n", util.ColorYellow, fmt.Sprintf(config.CurrentVersion, Version), util.ColorReset)
+	r.Printer.Printf("%s%s%s\n\n", util.ColorGreen, fmt.Sprintf(config.LatestVersion, release.TagName), util.ColorReset)
+
+	// Ask for confirmation
+	r.Printer.Printf("%s是否更新到最新版本？[Y/n] %s", util.ColorGreen, util.ColorReset)
+	reader := bufio.NewReader(r.input)
+	answer, err := reader.ReadString('\n')
+	if err != nil {
+		return false, fmt.Errorf("failed to read input: %v", err)
+	}
+
+	answer = strings.TrimSpace(strings.ToLower(answer))
+	if answer == "n" {
+		r.Printer.Printf("\n%s已取消更新%s\n", util.ColorYellow, util.ColorReset)
+		return false, nil
+	}
+
+	// Execute update command
+	r.Printer.PrintTitle("安装更新", util.EmojiRocket)
+	r.Printer.Printf("获取最新版本: %s\n\n", release.TagName)
+
+	cmd := exec.Command("bash", "-c", config.UpdateCommand)
+	cmd.Stdout = r.output
+	cmd.Stderr = r.output
+
+	if err := cmd.Run(); err != nil {
+		return false, fmt.Errorf(config.UpdateError, err)
+	}
+
+	return true, nil
+}
+
+func (r *ConfigReader) PrintModelMenu(title string, models []string, modelGroup []config.ModelGroup) {
+	r.Printer.PrintTitle(title, util.EmojiGear)
+
+	// 快速选择多个模型
+	r.Printer.Print("快捷选项\n")
+	r.Printer.Print("--------------------\n")
+
+	// Print model groups dynamically
+	for i, group := range config.ModelGroups {
+		r.Printer.Printf("%d. %s: %s\n", i+1, group.Title, strings.Join(group.Models, ", "))
+	}
+	r.Printer.Printf("\n")
+
+	// Print separator and header for individual models
+	r.Printer.Printf("常见模型列表\n")
+	r.Printer.Printf("--------------------\n")
+
+	// Find max length of model names
+	maxLen := 0
+	for _, model := range models {
+		if len(model) > maxLen {
+			maxLen = len(model)
+		}
+	}
+	// Add padding for better spacing
+	spacing := maxLen
+	// Print individual models in two columns
+	groupCount := len(config.ModelGroups)
+	for i := 0; i < len(models); i += 2 {
+		leftNum := i + groupCount + 1
+		leftModel := models[i]
+		if i+1 < len(models) {
+			rightNum := i + groupCount + 2
+			rightModel := models[i+1]
+			r.Printer.Printf("%-2d. %-*s %-2d. %s\n", leftNum, spacing, leftModel, rightNum, rightModel)
+		} else {
+			r.Printer.Printf("%-2d. %s\n", leftNum, leftModel)
+		}
+	}
+
+	prompt := "请选择AI模型 (输入序号或自定义模型名称，支持多选):"
+	subPrompt := "提示：多个选择可用空格或逗号分隔，如: 1,2 或 deepseek-chat,gpt-4-32k"
+
+	r.Printer.Printf("\n%s%s%s", util.ColorLightBlue, prompt, util.ColorReset)
+	r.Printer.Printf("\n%s%s%s", util.ColorLightBlue, subPrompt, util.ColorReset)
+
+	// 输入提示
+	r.Printer.Printf("\n%s> %s", util.ColorBold, util.ColorReset)
 }

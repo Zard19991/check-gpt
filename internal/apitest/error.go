@@ -6,38 +6,60 @@ import (
 	"strings"
 )
 
-// formatErrorMessage formats the error message based on the response body and channel type
-func formatErrorMessage(body string, isGemini bool, key, model string) string {
-	if isGemini {
-		var geminiError struct {
-			Error struct {
-				Code    int    `json:"code"`
-				Message string `json:"message"`
-				Status  string `json:"status"`
-			} `json:"error"`
+// GeminiError represents the error structure returned by Gemini API
+type GeminiError struct {
+	Error struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Status  string `json:"status"`
+		Details []struct {
+			Type     string            `json:"@type"`
+			Reason   string            `json:"reason,omitempty"`
+			Domain   string            `json:"domain,omitempty"`
+			Metadata map[string]string `json:"metadata,omitempty"`
+			Message  string            `json:"message,omitempty"`
+			Locale   string            `json:"locale,omitempty"`
+		} `json:"details"`
+	} `json:"error"`
+}
+
+// OpenAIError represents the error structure returned by OpenAI API
+type OpenAIError struct {
+	Error struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+		Code    string `json:"code"`
+	} `json:"error"`
+}
+
+// formatErrorMessage extracts and formats the main error message from an API error response
+func formatErrorMessage(status int, errBody string) string {
+	var msg string
+
+	var openaiErr OpenAIError
+	if err := json.Unmarshal([]byte(errBody), &openaiErr); err != nil || openaiErr.Error.Message == "" {
+		// Compress to single line by replacing newlines and multiple spaces
+		msg = strings.Join(strings.Fields(errBody), " ")
+	} else {
+		// Build error message
+		var parts []string
+
+		// with status code
+		parts = append(parts, fmt.Sprintf("code: %d", status))
+
+		if openaiErr.Error.Message != "" {
+			parts = append(parts, fmt.Sprintf("message: %s", openaiErr.Error.Message))
 		}
-		if err := json.Unmarshal([]byte(body), &geminiError); err != nil {
-			return fmt.Sprintf("响应解析失败: %v", err)
+
+		if openaiErr.Error.Type != "" {
+			parts = append(parts, fmt.Sprintf("type: %s", openaiErr.Error.Type))
 		}
-		return fmt.Sprintf("Gemini API 错误: %s", geminiError.Error.Message)
+		if openaiErr.Error.Code != "" {
+			parts = append(parts, fmt.Sprintf("code: %s", openaiErr.Error.Code))
+		}
+
+		msg = strings.Join(parts, " ")
 	}
 
-	var openAIError struct {
-		Error struct {
-			Message string `json:"message"`
-			Type    string `json:"type"`
-			Code    string `json:"code"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal([]byte(body), &openAIError); err != nil {
-		return fmt.Sprintf("响应解析失败: %v", err)
-	}
-
-	errMsg := openAIError.Error.Message
-	if strings.Contains(errMsg, "Incorrect API key") {
-		errMsg = fmt.Sprintf("API key 无效: %s", key)
-	} else if strings.Contains(errMsg, "This model's maximum context length") {
-		errMsg = fmt.Sprintf("模型 %s 的最大上下文长度超出限制", model)
-	}
-	return errMsg
+	return msg
 }

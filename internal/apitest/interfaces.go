@@ -7,7 +7,7 @@ import (
 
 // APITester defines the main interface for API testing
 type APITester interface {
-	TestChannel(context.Context, *TestConfig) (TestResult, error)
+	TestChannel(context.Context, *TestConfig) TestResult
 	TestAllChannels(context.Context, []*TestConfig) []TestResult
 	TestAllApis([]*Channel) []TestResult
 	PrintResults([]TestResult) error
@@ -18,6 +18,7 @@ type TestConfig struct {
 	Channel     *Channel
 	Model       string
 	RequestOpts RequestOptions
+	IsGemini    bool
 }
 
 // RequestOptions holds options for API requests
@@ -36,7 +37,7 @@ type RequestBuilder interface {
 
 // ResultProcessor processes API responses
 type ResultProcessor interface {
-	ProcessResponse(*http.Response) (TestResult, error)
+	ProcessResponse(*http.Response) TestResult
 }
 
 // HTTPClient abstracts the HTTP client for better testing

@@ -4,7 +4,6 @@
 *.dll
 *.so
 *.dylib
-check-gpt
 
 # Test binary, built with `go test -c`
 *.test

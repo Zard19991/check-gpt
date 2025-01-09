@@ -93,7 +93,7 @@ func NewChannelTest(maxConcurrency int, w io.Writer) *ChannelTest {
 			Timeout: config.Timeout,
 		},
 		requestBuilder:  NewRequestBuilder(),
-		resultProcessor: NewResultProcessor(),
+		resultProcessor: NewResultProcessor("", ""), // Empty key and model for now
 		sem:             make(chan struct{}, config.MaxConcurrency),
 		resultsChan:     make(chan TestResult, config.ResultBuffer),
 		done:            make(chan struct{}, 1),
@@ -114,7 +114,7 @@ func NewApiTest(maxConcurrency int, opts ...ChannelTestOption) APITester {
 			Timeout: config.Timeout,
 		},
 		requestBuilder:  NewRequestBuilder(),
-		resultProcessor: NewResultProcessor(),
+		resultProcessor: NewResultProcessor("", ""), // Empty key and model for now
 		sem:             make(chan struct{}, config.MaxConcurrency),
 		resultsChan:     make(chan TestResult, config.ResultBuffer),
 		done:            make(chan struct{}, 1),
@@ -131,8 +131,11 @@ func NewApiTest(maxConcurrency int, opts ...ChannelTestOption) APITester {
 }
 
 // TestChannel tests a single channel with the specified configuration
-func (ct *ChannelTest) TestChannel(ctx context.Context, cfg *TestConfig) (TestResult, error) {
+func (ct *ChannelTest) TestChannel(ctx context.Context, cfg *TestConfig) TestResult {
 	start := time.Now()
+
+	// Update result processor with current key and model
+	ct.resultProcessor = NewResultProcessor(cfg.Channel.Key, cfg.Model)
 
 	req, err := ct.requestBuilder.BuildRequest(ctx, cfg)
 	if err != nil {
@@ -141,7 +144,7 @@ func (ct *ChannelTest) TestChannel(ctx context.Context, cfg *TestConfig) (TestRe
 			Model:   cfg.Model,
 			Success: false,
 			Error:   fmt.Errorf("failed to build request: %v", err),
-		}, nil
+		}
 	}
 
 	resp, err := ct.client.Do(req)
@@ -151,24 +154,15 @@ func (ct *ChannelTest) TestChannel(ctx context.Context, cfg *TestConfig) (TestRe
 			Model:   cfg.Model,
 			Success: false,
 			Error:   fmt.Errorf("request failed: %v", err),
-		}, nil
+		}
 	}
 
-	result, err := ct.resultProcessor.ProcessResponse(resp)
-	if err != nil {
-		return TestResult{
-			Channel: cfg.Channel,
-			Model:   cfg.Model,
-			Success: false,
-			Error:   fmt.Errorf("failed to process response: %v", err),
-		}, nil
-	}
-
+	result := ct.resultProcessor.ProcessResponse(resp)
 	result.Channel = cfg.Channel
 	result.Model = cfg.Model
 	result.Latency = time.Since(start).Seconds()
 
-	return result, nil
+	return result
 }
 
 // TestAllChannels tests multiple channels concurrently
@@ -196,16 +190,7 @@ func (ct *ChannelTest) TestAllChannels(ctx context.Context, configs []*TestConfi
 			defer wg.Done()
 			sem <- struct{}{}        // Acquire semaphore
 			defer func() { <-sem }() // Release semaphore
-
-			result, err := ct.TestChannel(ctx, cfg)
-			if err != nil {
-				result = TestResult{
-					Channel: cfg.Channel,
-					Model:   cfg.Model,
-					Success: false,
-					Error:   err,
-				}
-			}
+			result := ct.TestChannel(ctx, cfg)
 			resultChan <- result
 		}(cfg)
 	}
@@ -342,7 +327,7 @@ func (ct *ChannelTest) PrintResults(results []TestResult) error {
 
 		fmt.Printf("│ 状态: %s%s %s%s\n", statusColor, overallStatus, statusText, util.ColorReset)
 
-		// Get all models and sort them according to CommonOpenAIModels or CommonGeminiModels
+		// Get all models and sort them according to CommonOpenAIModels
 		var sortedModels []string
 		modelMap := make(map[string]bool)
 
@@ -358,15 +343,6 @@ func (ct *ChannelTest) PrintResults(results []TestResult) error {
 				delete(modelMap, model)
 			}
 		}
-
-		// Then add models in the order they appear in CommonGeminiModels
-		for _, model := range config.CommonGeminiModels {
-			if modelMap[model] {
-				sortedModels = append(sortedModels, model)
-				delete(modelMap, model)
-			}
-		}
-
 		// Finally add any remaining models
 		for model := range modelMap {
 			sortedModels = append(sortedModels, model)
@@ -420,25 +396,21 @@ func (ct *ChannelTest) PrintResults(results []TestResult) error {
 
 			// Sort errors by model order
 			sort.Slice(kr.errors, func(i, j int) bool {
-				// Get model indices from CommonOpenAIModels and CommonGeminiModels
+				// Get model indices from CommonOpenAIModels
 				getModelIndex := func(model string) int {
 					for i, m := range config.CommonOpenAIModels {
 						if m == model {
 							return i
 						}
 					}
-					for i, m := range config.CommonGeminiModels {
-						if m == model {
-							return i + len(config.CommonOpenAIModels)
-						}
-					}
 					return 999 // For unknown models
 				}
 				return getModelIndex(kr.errors[i].model) < getModelIndex(kr.errors[j].model)
 			})
-
+			ct.printer.PrintError(fmt.Sprintf("[%d] key: %s", i+1, kr.key))
 			for _, err := range kr.errors {
-				ct.printer.PrintError(fmt.Sprintf("[%d] %s", i+1, err.message))
+				// print with red color
+				ct.printer.Print(fmt.Sprintf("    %s[%s] %s%s\n", util.ColorRed, err.model, err.message, util.ColorReset))
 			}
 		}
 	}

@@ -8,14 +8,15 @@ import (
 	"strings"
 )
 
-// Additional emoji constants
+// Menu-specific emojis
 const (
-	EmojiDefault = "🔄"
+	EmojiDefault = "⭐"
 	EmojiCustom  = "✏️"
-	EmojiTool    = "🛠️"
-	EmojiExit    = EmojiWave
 	EmojiOpenAI  = "🤖"
-	EmojiGemini  = "🌟"
+	EmojiExit    = "👋"
+	EmojiTool    = "🛠️"
+	EmojiUpdate  = "🚀"
+	EmojiBack    = "🔙"
 )
 
 // MenuItem represents a menu item
@@ -24,14 +25,13 @@ type MenuItem struct {
 	Label    string
 	Emoji    string
 	Selected bool
-	URL      string // Optional URL field for items like repository links
 }
 
 // Menu represents a menu with title and items
 type Menu struct {
 	Title       string
 	TitleEmoji  string
-	Description string // Additional information to display below title
+	Description string
 	Items       []MenuItem
 	Prompt      string
 	ValidChoice func(string) bool
@@ -65,22 +65,23 @@ var (
 		Items: []MenuItem{
 			{ID: 1, Label: "API Key 可用性测试", Emoji: EmojiKey},
 			{ID: 2, Label: "API 中转链路检测", Emoji: EmojiLink},
-			{ID: 3, Label: "退出", Emoji: EmojiExit},
+			{ID: 3, Label: "检查更新", Emoji: EmojiGear},
+			{ID: 4, Label: "退出", Emoji: EmojiExit},
 		},
-		Prompt: "请选择功能 (1-3): ",
+		Prompt: "请选择功能 (1-4): ",
 		ValidChoice: func(choice string) bool {
-			return choice >= "1" && choice <= "3"
+			return choice >= "1" && choice <= "4"
 		},
 	}
 
-	MenuAPITest = Menu{
-		Title:      "API Key 连接性测试",
-		TitleEmoji: EmojiKey,
+	MenuUpdate = Menu{
+		Title:      "检查更新",
+		TitleEmoji: EmojiGear,
 		Items: []MenuItem{
-			{ID: 1, Label: "通用 API Key 测试", Emoji: EmojiOpenAI},
-			{ID: 2, Label: "Gemini Key 测试", Emoji: EmojiGemini},
+			{ID: 1, Label: "立即更新", Emoji: EmojiUpdate},
+			{ID: 2, Label: "返回主菜单", Emoji: EmojiBack},
 		},
-		Prompt: "请选择测试类型 (1-2): ",
+		Prompt: "请选择操作: ",
 		ValidChoice: func(choice string) bool {
 			return choice == "1" || choice == "2"
 		},
@@ -109,12 +110,8 @@ func ShowMenu(menu Menu, input io.Reader, output io.Writer) (MenuItem, error) {
 				item.ID, item.Label, item.Emoji,
 				ColorGray, ColorReset)
 		} else {
-			format = fmt.Sprintf("%d. %s  %s",
+			format = fmt.Sprintf("%d. %s  %s\n",
 				item.ID, item.Label, item.Emoji)
-			if item.URL != "" {
-				format += fmt.Sprintf("  %s%s%s", ColorBlue, item.URL, ColorReset)
-			}
-			format += "\n"
 		}
 		printer.Print(format)
 	}
@@ -147,21 +144,7 @@ func ShowMenu(menu Menu, input io.Reader, output io.Writer) (MenuItem, error) {
 	}
 }
 
-// ShowMenuAndGetChoice displays a menu and returns user's choice
-func ShowMenuAndGetChoice(menu Menu, input io.Reader, output io.Writer, args ...string) (MenuItem, error) {
-	if len(args) > 0 {
-		defaultModel := args[0]
-		menu.Items[0].Label = fmt.Sprintf("使用默认模型 (%s)", defaultModel)
-	}
-	return ShowMenu(menu, input, output)
-}
-
-// ShowModelMenu displays a model selection menu
-func ShowModelMenu(defaultModel string, input io.Reader, output io.Writer) (MenuItem, error) {
-	return ShowMenuAndGetChoice(MenuKey, input, output, defaultModel)
-}
-
 // ShowMainMenu displays the main menu and returns the user's choice
 func ShowMainMenu(in io.Reader, out io.Writer) (MenuItem, error) {
-	return ShowMenuAndGetChoice(MenuMain, in, out)
+	return ShowMenu(MenuMain, in, out)
 }

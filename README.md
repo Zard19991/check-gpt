@@ -3,7 +3,15 @@
 [![Tests](https://github.com/go-coders/check-gpt/actions/workflows/test.yml/badge.svg)](https://github.com/go-coders/check-gpt/actions/workflows/test.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/go-coders/check-gpt)](https://goreportcard.com/report/github.com/go-coders/check-gpt)
 
-打造全能的 GPT 命令行诊断工具。目前支持 API 可用性检测和中转链路检测，未来会加入更多实用功能
+chatgpt, claude 等大模型中转服务/代理的检测工具，欢迎 star，未来会加入更多实用功能
+
+## 功能特性
+
+- [x] api key 可用性，速度测试
+- [x] chatgpt 中转/代理节点检测
+- [ ] api key 存储/管理
+- [ ] 计费管理
+- [ ] ...
 
 ## 安装方法
 
@@ -16,7 +24,7 @@ curl -fsSL https://raw.githubusercontent.com/go-coders/check-gpt/main/install.sh
 ### 方式二：Go Install
 
 ```bash
-go install github.com/go-coders/check-gpt@latest
+go install github.com/go-coders/cmd/check-gpt@latest
 ```
 
 ## 功能特性

@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-
-	"github.com/go-coders/check-gpt/pkg/config"
 )
 
 // DefaultRequestBuilder implements the RequestBuilder interface
@@ -25,21 +23,9 @@ func (b *DefaultRequestBuilder) BuildRequest(ctx context.Context, cfg *TestConfi
 	var err error
 	var reqURL string
 
-	switch cfg.Channel.Type {
-	case ChannelTypeGemini:
-		request := b.buildGeminiRequest(cfg)
-		jsonData, err = json.Marshal(request)
-		reqURL = fmt.Sprintf("%s/%s:generateContent?key=%s",
-			config.GeminiTestUrl,
-			cfg.Model,
-			cfg.Channel.Key)
-	case ChannelTypeOpenAI:
-		request := b.buildOpenAIRequest(cfg)
-		jsonData, err = json.Marshal(request)
-		reqURL = cfg.Channel.URL
-	default:
-		return nil, fmt.Errorf("unsupported channel type: %v", cfg.Channel.Type)
-	}
+	request := b.buildOpenAIRequest(cfg)
+	jsonData, err = json.Marshal(request)
+	reqURL = cfg.Channel.URL
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %v", err)
@@ -56,32 +42,6 @@ func (b *DefaultRequestBuilder) BuildRequest(ctx context.Context, cfg *TestConfi
 	}
 
 	return req, nil
-}
-
-func (b *DefaultRequestBuilder) buildGeminiRequest(cfg *TestConfig) *GeminiRequest {
-	maxTokens := 1
-	if strings.HasPrefix(cfg.Model, "gemini-2.0-flash-thinking") {
-		maxTokens = 2
-	}
-
-	return &GeminiRequest{
-		Contents: []GeminiContent{
-			{
-				Parts: []GeminiPart{
-					{
-						Text: "hi",
-					},
-				},
-			},
-		},
-		GenerationConfig: &GeminiGenerationConfig{
-			MaxOutputTokens: maxTokens,
-			Temperature:     cfg.RequestOpts.Temperature,
-			TopP:            cfg.RequestOpts.TopP,
-			TopK:            cfg.RequestOpts.TopK,
-			CandidateCount:  1,
-		},
-	}
 }
 
 func (b *DefaultRequestBuilder) buildOpenAIRequest(cfg *TestConfig) *OpenAIRequest {

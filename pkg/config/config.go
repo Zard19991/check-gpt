@@ -37,16 +37,20 @@ const (
 
 	LinkTestDefaultModel = "gpt-4o"
 	// Input prompts
-	InputPromptOpenAIKey  = "请输入API Key，多个Key 用空格分隔 :"
-	InputPromptOpenAIURL  = "请输入API URL:"
-	InputPromptModelTitle = "请输入测试的模型 (回车使用默认模型)"
+	InputPromptOpenAIKey = "请输入API Key，多个Key 用空格分隔 :"
+	InputPromptOpenAIURL = "请输入API URL:"
+
+	InputPromptModelTitle        = "选择测试模型"
+	InputPromptModelDescription  = "选择方式: 1-2 选择模型组合，3-12 选择单个模型"
+	InputPromptModelDescription2 = "支持多选(空格或逗号分隔)，也可直接输入模型名称"
+	InputPromptModelDescription3 = "回车使用默认模型"
+	InputPromptModelQuickSelect  = "%d. %s: %s"
 
 	InputPromptModel = "请输入测试的模型 (回车使用默认模型: %s)"
-	// Error messages
+
 	ErrorReadFailed         = "读取选择失败: %v"
 	ErrorTestFailed         = "测试失败: %v"
 	ErrorNoAPIKey           = "未输入API Key"
-	ErrorInvalidGeminiKey   = "无效的 Gemini API Key [%s]"
 	ErrorReadModelFailed    = "读取模型失败: %v"
 	ErrorNoURL              = "未检测到URL (应以http开头)"
 	ErrorNoKey              = "未检测到API Key"
@@ -62,6 +66,16 @@ const (
 	ConfigKeyCount   = "数量: %d 个 API Keys"
 	ConfigKeyMasked  = "API Keys: %s"
 	ConfigImageURL   = "临时图片URL: %s"
+
+	// Update related
+	UpdateCommand     = "curl -fsSL https://raw.githubusercontent.com/go-coders/check-gpt/main/install.sh | bash"
+	UpdateCheckURL    = "https://api.github.com/repos/go-coders/check-gpt/releases/latest"
+	UpdatePrompt      = "发现新版本 %s，是否更新? [y/N]: "
+	UpdateSkipped     = "跳过更新"
+	UpdateError       = "更新失败: %v"
+	CurrentVersion    = "当前版本: %s"
+	LatestVersion     = "最新版本: %s"
+	CheckingForUpdate = "正在检查更新..."
 )
 
 var debug bool
@@ -119,36 +133,51 @@ func getOpenAICIDR() []string {
 	return list
 }
 
-// Common model definitions
-var (
-	CommonOpenAIModels = []string{
-		"gpt-3.5-turbo",
-		"gpt-4o",
-		"gpt-4o-mini",
-		"o1-preview",
-		"o1",
-		"o1-mini",
-		"claude-3-5-sonnet-20241022",
-		"claude-3-5-haiku-20241022",
-		"claude-3-opus-20240229",
-		"claude-3-sonnet-20240620",
-	}
-
-	CommonGeminiModels = []string{
-		"gemini-1.5-flash",
-		"gemini-1.5-pro",
-		"gemini-2.0-flash-exp",
-		"gemini-2.0-flash-thinking-exp",
-	}
-)
-
-var ApiTestModelGptDefaults = []string{
-	"gpt-3.5-turbo",
-	"gpt-4o",
-	"gpt-4o-mini",
+// ModelGroup represents a model group configuration
+type ModelGroup struct {
+	Title   string
+	Models  []string
+	Default bool
 }
 
-var ApiTestModelGeminiDefaults = []string{
+// ModelGroups defines the available model groups
+var ModelGroups = []ModelGroup{
+	{
+		Title:   "ChatGPT",
+		Models:  []string{"gpt-3.5-turbo", "gpt-4o", "gpt-4o-mini"},
+		Default: true,
+	},
+	{
+		Title:  "ChatGPT o1",
+		Models: []string{"o1-preview", "o1", "o1-mini"},
+	},
+	{
+		Title:  "Claude",
+		Models: []string{"claude-3.5-sonnet", "claude-3.5-haiku", "claude-3-opus"},
+	},
+}
+
+// CommonOpenAIModels defines the list of common OpenAI models
+var CommonOpenAIModels = []string{
+	"gpt-3.5-turbo",
+	"gpt-4-turbo",
+	"gpt-4o",
+	"gpt-4o-mini",
+	"gpt-4o-128k",
+	"o1-preview",
+	"o1-mini",
+	"claude-3.5-sonnet",
+	"claude-3.5-haiku",
+	"claude-3.5-opus",
+	"claude-3-5-sonnet-20241022",
+	"claude-3-5-haiku-20241022",
+	"claude-3-opus-20240229",
 	"gemini-1.5-pro",
+	"gemini-2.0-flash-exp",
 	"gemini-2.0-flash-thinking-exp",
+}
+
+// AllModels returns all available models
+func AllModels() []string {
+	return CommonOpenAIModels
 }
