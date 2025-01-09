@@ -24,7 +24,7 @@ curl -fsSL https://raw.githubusercontent.com/go-coders/check-gpt/main/install.sh
 ### 方式二：Go Install
 
 ```bash
-go install github.com/go-coders/cmd/check-gpt@latest
+go install github.com/go-coders/check-gpt/cmd/check-gpt@latest
 ```
 
 ## 功能特性
