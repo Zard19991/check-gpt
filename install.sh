@@ -4,6 +4,11 @@
 REPO="go-coders/check-gpt"
 DEFAULT_VERSION="v0.1.7"
 
+# 检测 GOPATH
+if [ -z "$GOPATH" ]; then
+    GOPATH="$HOME/go"
+fi
+
 # 设置颜色
 if [ -t 1 ]; then
     # 终端支持颜色
@@ -98,6 +103,8 @@ check_and_install() {
         "/usr/local/bin/$BINARY_NAME"
         "$HOME/bin/$BINARY_NAME"
         "/usr/bin/$BINARY_NAME"
+        "$HOME/go/bin/$BINARY_NAME"
+        "$GOPATH/bin/$BINARY_NAME"
     )
 
     INSTALLED_PATH=""
@@ -105,6 +112,14 @@ check_and_install() {
         if [ -x "$path" ]; then
             INSTALLED_PATH="$path"
             INSTALL_DIR=$(dirname "$path")  # 设置全局变量
+            
+            # 检查是否有写权限
+            if [ ! -w "$INSTALL_DIR" ]; then
+                print_error "没有权限写入 $INSTALL_DIR"
+                print_message "请使用 sudo 重新运行安装命令："
+                print_message "sudo curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | sudo bash"
+                return 1
+            fi
             break
         fi
     done
@@ -138,19 +153,19 @@ check_and_install() {
             
             # 备份当前程序
             BACKUP_PATH="${INSTALLED_PATH}.bak"
-            if mv "$INSTALLED_PATH" "$BACKUP_PATH"; then
-                # 安装新版本
-                INSTALL_DIR=$(dirname "$INSTALLED_PATH")
-                if install_tool; then
-                    rm -f "$BACKUP_PATH"
-                    print_message "升级完成！"
-                else
-                    mv "$BACKUP_PATH" "$INSTALLED_PATH"
-                    print_error "升级失败，已恢复原版本"
-                    return 1
-                fi
-            else
+            if ! mv "$INSTALLED_PATH" "$BACKUP_PATH"; then
                 print_error "无法创建备份，取消升级"
+                return 1
+            fi
+
+            # 安装新版本
+            INSTALL_DIR=$(dirname "$INSTALLED_PATH")
+            if install_tool; then
+                rm -f "$BACKUP_PATH"
+                print_message "升级完成！"
+            else
+                mv "$BACKUP_PATH" "$INSTALLED_PATH"
+                print_error "升级失败，已恢复原版本"
                 return 1
             fi
         else
@@ -180,16 +195,28 @@ get_install_dir() {
             # 检查 PATH 中是否包含 ~/bin
             if [[ ":$PATH:" != *":$HOME/bin:"* ]]; then
                 print_warning "请将 $INSTALL_DIR 添加到您的 PATH 环境变量中"
+                print_message "根据您使用的 Shell，请运行以下命令："
                 case "$SHELL" in
                     */bash)
+                        print_message "Bash 用户运行："
                         print_message "echo 'export PATH=\"\$HOME/bin:\$PATH\"' >> ~/.bashrc"
                         print_message "source ~/.bashrc"
                         ;;
                     */zsh)
+                        print_message "Zsh 用户运行："
                         print_message "echo 'export PATH=\"\$HOME/bin:\$PATH\"' >> ~/.zshrc"
                         print_message "source ~/.zshrc"
                         ;;
+                    */fish)
+                        print_message "Fish 用户运行："
+                        print_message "fish_add_path $HOME/bin"
+                        ;;
+                    *)
+                        print_message "请将以下路径添加到您的 Shell 配置文件中："
+                        print_message "export PATH=\"\$HOME/bin:\$PATH\""
+                        ;;
                 esac
+                print_message "\n您也可以直接使用完整路径运行：$INSTALL_DIR/check-gpt"
             fi
         fi
     fi
@@ -261,15 +288,15 @@ install_tool() {
     # 安装文件
     print_message "安装程序到 $INSTALL_DIR"
     if [ -f "$BINARY_NAME" ]; then
-        if mv "$BINARY_NAME" "$INSTALL_DIR/"; then
-            chmod +x "$INSTALL_DIR/$BINARY_NAME"
-        else
-            print_error "安装失败，请尝试手动安装"
-            print_message "您可以手动将 $BINARY_NAME 文件移动到 $INSTALL_DIR 目录"
+        if ! mv "$BINARY_NAME" "$INSTALL_DIR/"; then
+            print_error "安装失败，没有写入权限"
+            print_message "请使用 sudo 重新运行安装命令："
+            print_message "sudo curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | sudo bash"
             cd ..
             rm -rf "$TMP_DIR"
             exit 1
         fi
+        chmod +x "$INSTALL_DIR/$BINARY_NAME"
     else
         print_error "安装文件不存在"
         cd ..

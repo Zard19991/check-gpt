@@ -21,6 +21,17 @@ import (
 // Version information
 var Version = "dev"
 
+// GetVersion returns the version with "v" prefix if not already present
+func GetVersion() string {
+	if Version == "dev" {
+		return Version
+	}
+	if !strings.HasPrefix(Version, "v") {
+		return "v" + Version
+	}
+	return Version
+}
+
 type GithubRelease struct {
 	TagName string `json:"tag_name"`
 }
@@ -388,17 +399,21 @@ func (r *ConfigReader) CheckUpdate() (bool, error) {
 		return false, fmt.Errorf("failed to parse release info: %v", err)
 	}
 
+	currentVersion := GetVersion()
 	// Print version information with color based on version comparison
-	if Version == release.TagName || Version == "dev" {
+	localVersion := strings.TrimPrefix(currentVersion, "v")
+	remoteVersion := strings.TrimPrefix(release.TagName, "v")
+
+	if localVersion == remoteVersion {
 		// Same version - use gray color for both
-		r.Printer.Printf("\n%s%s%s\n", util.ColorGray, fmt.Sprintf(config.CurrentVersion, Version), util.ColorReset)
+		r.Printer.Printf("\n%s%s%s\n", util.ColorGray, fmt.Sprintf(config.CurrentVersion, currentVersion), util.ColorReset)
 		r.Printer.Printf("%s%s%s\n\n", util.ColorGray, fmt.Sprintf(config.LatestVersion, release.TagName), util.ColorReset)
 		r.Printer.PrintSuccess("当前已是最新版本")
 		return false, nil
 	}
 
 	// Different versions - current version in yellow, latest in green
-	r.Printer.Printf("\n%s%s%s\n", util.ColorYellow, fmt.Sprintf(config.CurrentVersion, Version), util.ColorReset)
+	r.Printer.Printf("\n%s%s%s\n", util.ColorYellow, fmt.Sprintf(config.CurrentVersion, currentVersion), util.ColorReset)
 	r.Printer.Printf("%s%s%s\n\n", util.ColorGreen, fmt.Sprintf(config.LatestVersion, release.TagName), util.ColorReset)
 
 	// Ask for confirmation
@@ -470,7 +485,7 @@ func (r *ConfigReader) PrintModelMenu(title string, models []string, modelGroup 
 		}
 	}
 
-	prompt := "请选择AI模型 (输入序号或自定义模型名称，支持多选):"
+	prompt := "请选择AI模型 (输入序号或自定义模型名称，支持多选)"
 	subPrompt := "提示：多个选择可用空格或逗号分隔，如: 1,2 或 deepseek-chat,gpt-4-32k"
 
 	r.Printer.Printf("\n%s%s%s", util.ColorLightBlue, prompt, util.ColorReset)

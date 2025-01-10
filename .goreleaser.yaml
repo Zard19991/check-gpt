@@ -17,7 +17,7 @@ builds:
         goarch: arm64
     ldflags:
       - -s -w
-      - -X main.Version={{.Version}}
+      - -X github.com/go-coders/check-gpt/internal/apiconfig.Version={{.Version}}
 
 archives:
   - format_overrides:
